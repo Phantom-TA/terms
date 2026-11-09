@@ -39,12 +39,22 @@ export async function chooseBusiness(page: Page, name: RegExp): Promise<void> {
 
 /** Waits for every CSS animation and transition to finish, so colours are final before axe reads them. */
 export async function waitForAnimations(page: Page): Promise<void> {
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        // A pulsing "waiting" dot never finishes, and doesn't affect the text axe reads.
+        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .map((a) => a.finished),
+    ),
+  );
 }
 
 declare global {
   interface Window {
     /** Mock mode only: pushes a server event into the open event stream (see src/mocks/browser.ts). */
     __termsMockEmit?: (event: unknown) => void;
+    /** Mock mode only: runs the demo negotiation and streams it. */
+    __termsMockNegotiate?: () => void;
   }
 }
