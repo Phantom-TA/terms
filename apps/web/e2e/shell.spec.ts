@@ -50,7 +50,8 @@ test('shows a way home from an unknown page', async ({ page }) => {
   await expect(page.getByLabel('Acting as')).toHaveValue('biz_maya');
   await expectNoA11yViolations(page);
   await page.getByRole('link', { name: 'Go to your home screen' }).click();
-  await expect(page).toHaveURL(/style-guide/);
+  await expect(page).toHaveURL(/\/workbench$/);
+  await expect(page.getByRole('heading', { name: 'Workbench', level: 1 })).toBeVisible();
 });
 
 test('skip link is the first stop for keyboard users', async ({ page }) => {

@@ -36,3 +36,8 @@ export async function chooseBusiness(page: Page, name: RegExp): Promise<void> {
   await page.goto('/');
   await page.getByRole('button', { name }).click();
 }
+
+/** Waits for every CSS animation and transition to finish, so colours are final before axe reads them. */
+export async function waitForAnimations(page: Page): Promise<void> {
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+}
