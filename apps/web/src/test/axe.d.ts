@@ -1,7 +1,10 @@
 import 'vitest';
 
 declare module 'vitest' {
-  interface Matchers {
+  interface Assertion<T> {
+    toHaveNoViolations(): T;
+  }
+  interface AsymmetricMatchersContaining {
     toHaveNoViolations(): void;
   }
 }
