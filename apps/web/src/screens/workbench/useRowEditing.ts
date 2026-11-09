@@ -1,5 +1,5 @@
 import { type Goal, type Plan } from '@terms/shared';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { toApiError } from '../../api/errors';
 import { useToast } from '../../ui/Toast';
 import { isPolicyBlock, useUpdatePlanItem } from './queries';
@@ -9,12 +9,14 @@ import { approvalNote, checkRowEdit, type EditContext, type EditField } from './
 /**
  * Connects the grid to the server for owner edits: pre-check with the shared policy functions,
  * send the change, and show the plan the server returns. A change is reported as done only after
- * the server confirms it.
+ * the server confirms it. Edits are sent one at a time, in the order they were made, so a slow
+ * response can't overwrite the plan from a newer one.
  */
 export function useRowEditing(goal: Goal | null, plan: Plan | null, today: string) {
-  const update = useUpdatePlanItem();
+  const { mutateAsync } = useUpdatePlanItem();
   const { toast } = useToast();
   const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
+  const queue = useRef<Promise<void>>(Promise.resolve());
 
   const context = useMemo<EditContext | null>(() => {
     if (!goal || !plan) return null;
@@ -46,36 +48,35 @@ export function useRowEditing(goal: Goal | null, plan: Plan | null, today: strin
         toast({ tone: 'error', title, description: result.message });
         return;
       }
+      const variables = { planId: plan.id, itemId: row.item.id, patch: result.patch };
       setBusy(row.id, true);
-      update.mutate(
-        { planId: plan.id, itemId: row.item.id, patch: result.patch },
-        {
-          onSuccess: ({ policyChecks }) => {
-            toast({
-              tone: 'success',
-              title: `${row.clientName} updated`,
-              description: approvalNote(policyChecks) ?? 'The server has recalculated the plan.',
-            });
-          },
-          onError: (error) => {
-            const apiError = toApiError(error);
-            const blocked = isPolicyBlock(error)
-              ? apiError.policyChecks.find((c) => c.result === 'blocked')?.detail
-              : undefined;
-            toast({
-              tone: 'error',
-              title,
-              description: blocked ?? apiError.message,
-              debugId: apiError.paypalDebugId,
-            });
-          },
-          onSettled: () => {
-            setBusy(row.id, false);
-          },
-        },
-      );
+
+      const send = async (): Promise<void> => {
+        try {
+          const { policyChecks } = await mutateAsync(variables);
+          toast({
+            tone: 'success',
+            title: `${row.clientName} updated`,
+            description: approvalNote(policyChecks) ?? 'The server has recalculated the plan.',
+          });
+        } catch (error) {
+          const apiError = toApiError(error);
+          const blocked = isPolicyBlock(error)
+            ? apiError.policyChecks.find((c) => c.result === 'blocked')?.detail
+            : undefined;
+          toast({
+            tone: 'error',
+            title,
+            description: blocked ?? apiError.issues[0]?.message ?? apiError.message,
+            debugId: apiError.paypalDebugId,
+          });
+        } finally {
+          setBusy(row.id, false);
+        }
+      };
+      queue.current = queue.current.then(send);
     },
-    [context, plan, setBusy, toast, update],
+    [context, plan, setBusy, toast, mutateAsync],
   );
 
   return { onEdit, saving };
