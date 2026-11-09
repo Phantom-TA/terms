@@ -298,6 +298,13 @@ export class MockWorld {
         backupOrder: 1,
       });
     }
+    const plannedCost = sumCents(
+      items.filter((i) => i.rank === 'PRIMARY').map((i) => toCents(i.cost)),
+    );
+    const checkedItems = items.map((item) => ({
+      ...item,
+      policyChecks: this.checksFor(item, goal, plannedCost, SUPPLIER_POLICY.costCeiling),
+    }));
     const plan: Plan = {
       id: 'plan_1',
       goalId: goal.id,
@@ -305,8 +312,8 @@ export class MockWorld {
       costCeiling: SUPPLIER_POLICY.costCeiling,
       approvedAt: null,
       createdAt: this.stamp(),
-      summary: this.summaryFor(goal, items, SUPPLIER_POLICY.costCeiling),
-      items,
+      summary: this.summaryFor(goal, checkedItems, SUPPLIER_POLICY.costCeiling),
+      items: checkedItems,
     };
     this.plan = plan;
     this.goal = { ...goal, status: 'PLANNED', updatedAt: this.stamp() };
@@ -336,7 +343,6 @@ export class MockWorld {
       reason: '',
       explanation: null,
       editedByOwner: false,
-      // contracts-v2 (CR-1): rows carry the server's policy checks. The mock has none yet.
       policyChecks: [],
       dealId: null,
       dealState: null,
@@ -441,6 +447,39 @@ export class MockWorld {
     };
   }
 
+  /** The checks the server runs on a row. Protected rows carry their blocked do-not-contact check. */
+  private checksFor(
+    item: PlanItemView,
+    goal: Goal,
+    planCost: Cents,
+    ceiling: string,
+  ): PolicyCheckView[] {
+    const s = specFor(item.invoiceId);
+    const policy = {
+      maxDiscountBps: percentToBps(goal.maxDiscountPct),
+      doNotContact: [
+        ...goal.doNotContact.flatMap((d) => (d.businessId ? [d.businessId] : [])),
+        ...INVOICES.filter((i) => !i.contactAllowed).map((i) => i.clientId),
+      ],
+      costCeiling: toCents(ceiling),
+    };
+    if (item.action === 'NONE') {
+      return policy.doNotContact.includes(s.clientId) ? evaluateReminder(policy, s.clientId) : [];
+    }
+    if (item.action === 'REMINDER') return evaluateReminder(policy, s.clientId);
+    return evaluateSupplierTerms(policy, {
+      clientId: s.clientId,
+      amountDue: s.amount,
+      dueDate: addDays(TODAY, s.dueInDays),
+      amountEarly: toCents(item.amountEarly ?? '0.00'),
+      discountBps: percentToBps(item.discountPct ?? '0.00'),
+      payBy: item.payBy ?? TODAY,
+      planCostIfAgreed: planCost,
+      round: 1,
+      today: TODAY,
+    });
+  }
+
   /** Applies an owner edit after the same policy checks the server runs. Throws PolicyBlockedError. */
   updateItem(
     itemId: string,
@@ -497,29 +536,12 @@ export class MockWorld {
 
     const others = plan.items.filter((i) => i.id !== itemId && i.rank === 'PRIMARY');
     const planCostIfAgreed = sumCents([...others, next].map((i) => toCents(i.cost)));
-    const policy = {
-      maxDiscountBps: percentToBps(goal.maxDiscountPct),
-      doNotContact: goal.doNotContact.flatMap((d) => (d.businessId ? [d.businessId] : [])),
-      costCeiling: toCents(plan.costCeiling),
-    };
-    const checks =
-      next.action === 'NONE'
-        ? []
-        : next.action === 'REMINDER'
-          ? evaluateReminder(policy, s.clientId)
-          : evaluateSupplierTerms(policy, {
-              clientId: s.clientId,
-              amountDue: s.amount,
-              dueDate: addDays(TODAY, s.dueInDays),
-              amountEarly: toCents(next.amountEarly ?? '0.00'),
-              discountBps: percentToBps(next.discountPct ?? '0.00'),
-              payBy: next.payBy ?? TODAY,
-              planCostIfAgreed,
-              round: 1,
-              today: TODAY,
-            });
-    // A cost over the ceiling needs the owner's approval, it is not a hard block.
-    if (checks.some((c) => c.result === 'blocked')) throw new PolicyBlockedError(checks);
+    const checks = this.checksFor(next, goal, planCostIfAgreed, plan.costCeiling);
+    // Going over the ceiling needs the owner's approval, and choosing no action is never blocked.
+    if (next.action !== 'NONE' && checks.some((c) => c.result === 'blocked')) {
+      throw new PolicyBlockedError(checks);
+    }
+    next.policyChecks = checks;
 
     const items = plan.items.map((i) => (i.id === itemId ? next : i));
     this.plan = { ...plan, items, summary: this.summaryFor(goal, items, plan.costCeiling) };

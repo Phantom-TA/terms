@@ -70,6 +70,33 @@ describe('mock world reproduces the CONTEXT.md scenario', () => {
     });
   });
 
+  it('stores the checks the planner ran on each row', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const byClient = Object.fromEntries(
+      plan.items.filter((i) => i.rank === 'PRIMARY').map((i) => [i.client.name, i]),
+    );
+    expect(byClient['Pinecrest Dental']?.policyChecks).toEqual([
+      expect.objectContaining({ rule: 'doNotContact', result: 'blocked' }),
+    ]);
+    expect(byClient['Oak Street Bakery']?.policyChecks).toEqual([
+      expect.objectContaining({ rule: 'doNotContact', result: 'pass' }),
+    ]);
+    const juniper = byClient['Juniper Labs']?.policyChecks ?? [];
+    expect(juniper.length).toBeGreaterThan(3);
+    expect(juniper.every((c) => c.result === 'pass')).toBe(true);
+  });
+
+  it('records the new checks on an edited row', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const harbor = plan.items.find((i) => i.client.name === 'Harbor & Co')!;
+    const edited = world.updateItem(harbor.id, { discountPct: '1.20' }).plan;
+    expect(edited.items.find((i) => i.id === harbor.id)?.policyChecks).toContainEqual(
+      expect.objectContaining({ rule: 'costCeiling', result: 'needs_approval' }),
+    );
+  });
+
   it('creates no deals until the owner approves, as the API does', () => {
     world.parseGoal(SENTENCE);
     world.createPlan();

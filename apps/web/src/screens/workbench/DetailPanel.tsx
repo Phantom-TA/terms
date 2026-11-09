@@ -123,6 +123,12 @@ export function DetailPanel({ data }: CustomCellRendererProps<AnyRow>) {
             {item.editedByOwner ? (
               <p className="text-sm text-ink-3">You changed this row.</p>
             ) : null}
+            {item.policyChecks.length > 0 ? (
+              <div className="pt-1">
+                <h3 className="text-base">Policy checks</h3>
+                <PolicyBadges checks={item.policyChecks} />
+              </div>
+            ) : null}
             {data.invoice.backups.length > 0 ? (
               <div className="pt-1">
                 <h3 className="text-base">If another offer is declined</h3>

@@ -1,5 +1,6 @@
 import { type CustomCellRendererProps } from 'ag-grid-react';
 import clsx from 'clsx';
+import { Check } from 'lucide-react';
 import {
   formatAnnualRate,
   formatDate,
@@ -15,6 +16,7 @@ import {
   DealStatePill,
   Money,
   MoneyWithDiscount,
+  PolicyBadge,
   ProtectedTag,
 } from '../../ui/finance';
 import { type AnyRow, type ApprovalStatus, isInvoiceRow } from './rows';
@@ -101,6 +103,28 @@ export function CommittedCell({ data, value }: Props<string | null>) {
     return value ? <Money value={value} committed /> : null;
   }
   return value ? <Money value={value} committed /> : null;
+}
+
+/**
+ * The checks the server ran. A row can carry seven, so only what needs attention gets a badge and
+ * the rest are counted. The full list is in the row's detail.
+ */
+export function PolicyCell({ data }: Props) {
+  if (!isInvoiceRow(data) || data.policyChecks.length === 0) return null;
+  const flagged = data.policyChecks.filter((check) => check.result !== 'pass');
+  const passed = data.policyChecks.length - flagged.length;
+  return (
+    <span className="inline-flex flex-wrap gap-1 align-middle">
+      {flagged.map((check) => (
+        <PolicyBadge key={check.rule} check={check} />
+      ))}
+      {passed > 0 ? (
+        <Badge icon={<Check aria-hidden className="size-3" />}>
+          {flagged.length === 0 ? `All ${passed} passed` : `${passed} passed`}
+        </Badge>
+      ) : null}
+    </span>
+  );
 }
 
 export function DealStateCell({ data }: Props) {
