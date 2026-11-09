@@ -104,6 +104,18 @@ even when omitted.
 | searchTransactions                         | `startDate`, `endDate`                                                 | query                                   | yes                                                                                      | —                                     | ISO date-times, at most 31 days apart (**UNVERIFIED**: settled by spike S4) | map                                                              |
 | searchTransactions                         | `page`                                                                 | query                                   | no                                                                                       | `1`                                   | driven by our loop, capped at 20 pages                                      | map                                                              |
 
+### Defaults the SDK sends on its own
+
+Observed in `apps/api/test/paypal/vault-payment.test.ts`, which asserts the full body. These come from
+`s.defaulted(...)` entries in the SDK's model schemas. Spike S5 succeeded with them in place.
+
+| Operation                 | Field                                                          | Value sent                            |
+| ------------------------- | -------------------------------------------------------------- | ------------------------------------- |
+| createSetupToken          | `payment_source.paypal.permit_multiple_payment_tokens`         | `false`                               |
+| createSetupToken          | `payment_source.paypal.experience_context.shipping_preference` | `GET_FROM_FILE`                       |
+| createSetupToken          | `payment_source.paypal.experience_context.user_action`         | `CONTINUE`                            |
+| createOrder, captureOrder | `Prefer` header                                                | overridden to `return=representation` |
+
 ### Optional fields we leave out
 
 | Operation          | Field                                                                                                                                                                                                                | What requires it                                                                      | Set it? |

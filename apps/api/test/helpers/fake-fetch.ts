@@ -97,3 +97,29 @@ export function paypalError(name: string, description: string, debugId = 'dbg123
     links: [{ href: 'https://developer.paypal.com/docs/api/', rel: 'information_link' }],
   };
 }
+
+/**
+ * A fake PayPal that routes by `METHOD /path`: each route answers from a queue of responses, in
+ * order, or from a function. Token requests are answered automatically; an unrouted request fails
+ * the test loudly.
+ */
+export function routePayPal(routes: Record<string, Responder | Response[]>) {
+  const queues = new Map<string, Response[]>();
+  return stubFetch((url, request) => {
+    if (url.pathname.endsWith('/v1/oauth2/token')) return tokenResponse();
+    const key = `${request.method} ${url.pathname}`;
+    const route = routes[key];
+    if (route === undefined) throw new Error(`unexpected PayPal call ${key}`);
+    if (typeof route === 'function') return route(url, request);
+    const queue = queues.get(key) ?? [...route];
+    queues.set(key, queue);
+    const next = queue.shift();
+    if (next === undefined) throw new Error(`no more responses for ${key}`);
+    return next;
+  });
+}
+
+/** A responder that drops the connection, as a dead network would. */
+export const dropConnection: Responder = () => {
+  throw new Error('ECONNRESET');
+};

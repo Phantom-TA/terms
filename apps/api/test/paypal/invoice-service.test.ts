@@ -18,8 +18,8 @@ import {
   paypalError,
   stubFetch,
   testPayPalConfig,
-  tokenResponse,
-  type Responder,
+  routePayPal,
+  dropConnection,
 } from '../helpers/fake-fetch.js';
 import { type ScenarioIds, seedDeal, seedScenario, TODAY } from '../helpers/fixtures.js';
 
@@ -92,22 +92,7 @@ function wire(o: {
 const ORIGINAL = wire({ total: '7500.00' });
 const UPDATED = wire({ total: '7479.00', discount: '21.00', minimum: '1729.00' });
 
-/** Routes PayPal requests by method and path; unmatched requests fail the test loudly. */
-function paypal(routes: Record<string, Responder | Response[]>) {
-  const queues = new Map<string, Response[]>();
-  return stubFetch((url, request) => {
-    if (url.pathname.endsWith('/v1/oauth2/token')) return tokenResponse();
-    const key = `${request.method} ${url.pathname}`;
-    const route = routes[key];
-    if (route === undefined) throw new Error(`unexpected PayPal call ${key}`);
-    if (typeof route === 'function') return route(url, request);
-    const queue = queues.get(key) ?? [...route];
-    queues.set(key, queue);
-    const next = queue.shift();
-    if (next === undefined) throw new Error(`no more responses for ${key}`);
-    return next;
-  });
-}
+const paypal = routePayPal;
 
 function service(fetch: typeof globalThis.fetch) {
   const rest = new PayPalRestClient(testPayPalConfig, { fetch, backoffMs: 0, maxRetries: 0 });
@@ -280,6 +265,27 @@ describe('InvoiceService.applyTerms (Postgres, fake PayPal)', () => {
     expect(r2).toMatchObject({ outcome: 'applied', deal: { state: 'AWAITING_PAYMENT' } });
     // The settlement only read; it never sent the update again.
     expect(later.apiCalls().map((c) => c.request.method)).toEqual(['GET']);
+  });
+
+  it('stays unknown when the re-read fails too, and finishes a claim that already succeeded', async () => {
+    const dealId = await agreedDeal();
+    const down = paypal({
+      [`GET ${INVOICE}`]: [
+        jsonResponse(200, ORIGINAL),
+        jsonResponse(503, paypalError('INTERNAL', 'x')),
+      ],
+      [`PUT ${INVOICE}`]: dropConnection,
+    });
+    expect((await service(down.fetch).applyTerms(dealId)).outcome).toBe('unknown');
+
+    // The write is known to have succeeded (e.g. settled by a later read): just advance the deal.
+    const write = (await ledger.get(db, `invoice-update:${dealId}`))!;
+    await ledger.succeed(db, write.id, 'INV2-TEST-1043');
+    const none = stubFetch(() => {
+      throw new Error('no call expected');
+    });
+    expect((await service(none.fetch).applyTerms(dealId)).deal.state).toBe('AWAITING_PAYMENT');
+    expect(none.calls).toHaveLength(0);
   });
 
   it('fails the deal and releases the claim when PayPal refuses the update', async () => {
@@ -494,6 +500,24 @@ describe('InvoiceService.recordPayment', () => {
     });
     expect((await service(stub.fetch).recordPayment(dealId, capture)).outcome).toBe('unknown');
     expect((await ledger.get(db, 'invoice-payment:CAPTURE1'))!.status).toBe('UNKNOWN');
+  });
+
+  it('stays unknown when the invoice cannot be read, and reuses a settled record', async () => {
+    const dealId = await withPaymentRecord();
+    const down = paypal({
+      [`POST ${PAYMENTS}`]: dropConnection,
+      [`GET ${INVOICE}`]: [jsonResponse(503, paypalError('INTERNAL', 'x'))],
+    });
+    expect((await service(down.fetch).recordPayment(dealId, capture)).outcome).toBe('unknown');
+    const write = (await ledger.get(db, 'invoice-payment:CAPTURE1'))!;
+    await ledger.succeed(db, write.id, 'EXTR-9');
+    const none = stubFetch(() => {
+      throw new Error('no call expected');
+    });
+    expect(await service(none.fetch).recordPayment(dealId, capture)).toEqual({
+      invoicePaymentId: 'EXTR-9',
+      outcome: 'applied',
+    });
   });
 
   it('releases the claim when PayPal refuses the record for another reason', async () => {
