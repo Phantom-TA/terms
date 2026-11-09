@@ -4,7 +4,7 @@ Open requests against `@terms/shared` and root tooling. Until each ships, the we
 
 ## CR-1: per-row policy checks on `PlanItemView`
 
-**Status:** open. **Needed for:** Phase 2, Workbench policy-badges column.
+**Status:** open. **Needed for:** Phase 2, Workbench policy-badges column. The column is left out until this ships (decision W-017).
 
 The Workbench shows policy badges on every row, but `PlanItemView` has no checks. `UpdatePlanItemResponse.policyChecks` only covers a row just edited. Computing them in the browser would show checks the server may not have run.
 
