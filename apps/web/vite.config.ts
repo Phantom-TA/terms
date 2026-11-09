@@ -28,10 +28,17 @@ function devMockServiceWorker(): Plugin {
 const API_ORIGIN = process.env['TERMS_API_ORIGIN'] ?? 'http://localhost:3000';
 
 export default defineConfig({
+  // The repo keeps one .env at its root (.env.example). Only VITE_* values reach the browser.
+  envDir: '../..',
   plugins: [react(), tailwindcss(), devMockServiceWorker()],
   resolve: {
     // Read @terms/shared from TypeScript source, so no watch build is needed (docs/api.md).
     conditions: ['@terms/source', ...defaultClientConditions],
+  },
+  optimizeDeps: {
+    // Pre-bundle these up front. Otherwise the dev server finds them when a lazy screen first
+    // loads, and reloads the page to re-optimise.
+    include: ['ag-grid-community', 'ag-grid-enterprise', 'ag-grid-react'],
   },
   server: {
     port: 5173,
@@ -39,7 +46,7 @@ export default defineConfig({
   },
   build: {
     target: 'es2023',
-    sourcemap: true,
+    sourcemap: false,
     chunkSizeWarningLimit: 4000,
   },
   test: {

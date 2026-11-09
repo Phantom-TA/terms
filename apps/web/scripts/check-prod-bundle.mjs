@@ -6,8 +6,8 @@ import { join } from 'node:path';
 
 const DIST = new URL('../dist', import.meta.url).pathname;
 
-/** Strings that exist only in MSW or in src/mocks. */
-const FORBIDDEN = ['mockServiceWorker', 'setupWorker', 'TERMS_MOCK_FIXTURE'];
+/** Strings that exist only in MSW, src/mocks or the dev-only style guide. */
+const FORBIDDEN = ['mockServiceWorker', 'setupWorker', 'TERMS_MOCK_FIXTURE', 'grid-specimen'];
 /** Server-only variable names that must never be referenced by browser code. */
 const SERVER_ONLY = ['PAYPAL_CLIENT_SECRET', 'LLM_API_KEY', 'SESSION_SECRET', 'OFFER_TOKEN_SECRET'];
 
