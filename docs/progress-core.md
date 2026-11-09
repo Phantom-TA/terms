@@ -43,6 +43,15 @@ Not started. Blocked on: APIMatic Context Plugin installed in Claude Code (requi
 | Coverage ≥ 90% lines: planner, deals, plans, approvals                                 | PASS        | 100% lines on each (`pnpm test:coverage`)                                                                                                                                                                        |
 | Negotiation strategies (deterministic mode) and deal engine execution                  | Not started | Next: Phase 4 builds the deterministic strategies first, then the LLM negotiators                                                                                                                                |
 
+## Contract requests from Developer B
+
+| Request                                              | Status | Evidence                                                                                |
+| ---------------------------------------------------- | ------ | --------------------------------------------------------------------------------------- |
+| CR-1 per-row policy checks on `PlanItemView`         | PASS   | `apps/api/test/plan-service.test.ts` (stored at planning and on edit; DNC rows blocked) |
+| CR-2 `paypalCall` and `dealId` on audit, filter      | PASS   | `apps/api/test/audit.test.ts`, `approval-service.test.ts`                               |
+| CR-3 web lint, tests, build and bundle check in CI   | PASS   | `.github/workflows/ci.yml` (runs when `apps/web/package.json` exists)                   |
+| Ship to B: merge to `develop` and tag `contracts-v2` | Open   | Waits for the owner's approval to open a PR                                             |
+
 ## Needs from Developer A (human)
 
 | Item                                                                                                                                                                           | Status                                        |
