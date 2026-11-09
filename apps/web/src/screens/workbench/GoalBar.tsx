@@ -48,6 +48,23 @@ export function GoalBar({ goal, hasPlan, clients }: GoalBarProps) {
   const createPlan = useCreatePlan();
   const { toastError } = useToast();
 
+  // A name the server couldn't match protects nobody. Saving the list by client ID drops it, so
+  // remember it here and keep warning, rather than let the warning quietly disappear.
+  const [unmatched, setUnmatched] = useState<{ goalId: string; names: readonly string[] }>({
+    goalId: '',
+    names: [],
+  });
+  const knownUnmatched = unmatched.goalId === goal?.id ? unmatched.names : [];
+  const unmatchedNames = [
+    ...new Set([
+      ...knownUnmatched,
+      ...(goal?.doNotContact.filter((d) => d.businessId === null).map((d) => d.name) ?? []),
+    ]),
+  ];
+  if (goal && unmatchedNames.length !== knownUnmatched.length) {
+    setUnmatched({ goalId: goal.id, names: unmatchedNames });
+  }
+
   const showForm = goal === null || (goal.status === 'DRAFT' && rewriting);
 
   const submit = (event: SyntheticEvent) => {
@@ -211,35 +228,42 @@ export function GoalBar({ goal, hasPlan, clients }: GoalBarProps) {
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Do not contact">
         <span className="text-sm text-ink-3">Do not contact</span>
         {goal.doNotContact.length === 0 ? <span className="text-sm text-ink-2">No one</span> : null}
-        {goal.doNotContact.map((entry) =>
-          entry.businessId === null ? (
-            <Badge key={entry.name} tone="warn">
-              No client matched “{entry.name}”
-            </Badge>
-          ) : (
-            <Chip
-              key={entry.businessId}
-              {...(editable
-                ? {
-                    onRemove: () => {
-                      patch({
-                        doNotContactIds: [...protectedIds].filter((id) => id !== entry.businessId),
-                      }).catch((error: unknown) => {
-                        toastError('Couldn’t change the list', error);
-                      });
-                    },
-                    removeLabel: `Allow contact with ${entry.matchedName ?? entry.name}`,
-                  }
-                : {})}
-            >
-              {entry.matchedName ?? entry.name}
-            </Chip>
-          ),
+        {unmatchedNames.map((name) => (
+          <Badge key={name} tone="warn">
+            No client matched “{name}”. Not protected
+          </Badge>
+        ))}
+        {goal.doNotContact.flatMap((entry) =>
+          entry.businessId === null
+            ? []
+            : [
+                <Chip
+                  key={entry.businessId}
+                  removeDisabled={updateGoal.isPending}
+                  {...(editable
+                    ? {
+                        onRemove: () => {
+                          patch({
+                            doNotContactIds: [...protectedIds].filter(
+                              (id) => id !== entry.businessId,
+                            ),
+                          }).catch((error: unknown) => {
+                            toastError('Couldn’t change the list', error);
+                          });
+                        },
+                        removeLabel: `Allow contact with ${entry.matchedName ?? entry.name}`,
+                      }
+                    : {})}
+                >
+                  {entry.matchedName ?? entry.name}
+                </Chip>,
+              ],
         )}
         {editable && addable.length > 0 ? (
           <Select
             aria-label="Add a client to protect"
             value=""
+            disabled={updateGoal.isPending}
             className="h-7 w-44 text-sm"
             onChange={(e) => {
               const id = e.target.value;

@@ -11,10 +11,19 @@ export interface ChipProps {
   /** Shows a remove button. Omit it and the chip cannot be removed. */
   onRemove?: () => void;
   removeLabel?: string;
+  /** Blocks removing while an earlier change is still being saved. */
+  removeDisabled?: boolean;
   className?: string;
 }
 
-export function Chip({ label, children, onRemove, removeLabel, className }: ChipProps) {
+export function Chip({
+  label,
+  children,
+  onRemove,
+  removeLabel,
+  removeDisabled = false,
+  className,
+}: ChipProps) {
   return (
     <span className={clsx(SHELL, className)}>
       {label ? <span className="text-ink-3">{label}</span> : null}
@@ -23,8 +32,9 @@ export function Chip({ label, children, onRemove, removeLabel, className }: Chip
         <button
           type="button"
           onClick={onRemove}
+          disabled={removeDisabled}
           aria-label={removeLabel ?? 'Remove'}
-          className="-mr-0.5 rounded-sm p-0.5 text-ink-3 hover:bg-sunken hover:text-ink"
+          className="-mr-0.5 rounded-sm p-0.5 text-ink-3 hover:bg-sunken hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
           <X aria-hidden className="size-3" />
         </button>

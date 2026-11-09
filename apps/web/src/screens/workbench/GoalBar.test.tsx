@@ -182,6 +182,52 @@ describe('GoalBar', () => {
     expect(currentWorld().goal?.doNotContact).toHaveLength(2);
   });
 
+  it('keeps warning about a name it could not match, even after the list is saved', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(endpoints.createGoal.path, () => {
+        const goal = currentWorld().parseGoal(SENTENCE);
+        goal.doNotContact.push({ name: 'Zenith', businessId: null, matchedName: null });
+        return HttpResponse.json({ goal }, { status: 201 });
+      }),
+    );
+    renderWithProviders(<Harness />);
+    const goal = await readGoal(user);
+    const list = within(goal).getByRole('group', { name: 'Do not contact' });
+    expect(list).toHaveTextContent('No client matched “Zenith”. Not protected');
+
+    // Saving the list by client ID drops the unmatched name on the server.
+    await user.selectOptions(within(goal).getByLabelText('Add a client to protect'), 'biz_harbor');
+    await within(goal).findByRole('button', { name: 'Allow contact with Harbor & Co' });
+    expect(currentWorld().goal?.doNotContact.some((d) => d.name === 'Zenith')).toBe(false);
+    expect(list).toHaveTextContent('No client matched “Zenith”. Not protected');
+  });
+
+  it('does not let a second change race the first', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    const goal = await readGoal(user);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.patch(endpoints.updateGoal.path, async () => {
+        await gate;
+        return HttpResponse.json({ goal: currentWorld().goal });
+      }),
+    );
+    await user.selectOptions(within(goal).getByLabelText('Add a client to protect'), 'biz_harbor');
+    expect(within(goal).getByLabelText('Add a client to protect')).toBeDisabled();
+    expect(
+      within(goal).getByRole('button', { name: 'Allow contact with Pinecrest Dental' }),
+    ).toBeDisabled();
+    release();
+    await waitFor(() => {
+      expect(within(goal).getByLabelText('Add a client to protect')).toBeEnabled();
+    });
+  });
+
   it('offers only clients who are not already protected', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);
