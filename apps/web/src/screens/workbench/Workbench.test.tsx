@@ -1,5 +1,5 @@
 import { endpoints } from '@terms/shared';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
 import { delay, http, HttpResponse } from 'msw';
@@ -100,6 +100,27 @@ describe('Workbench screen', () => {
     currentWorld().approve('60.00');
     renderWithProviders(<Workbench />);
     expect(await screen.findByText('canEdit: false')).toBeInTheDocument();
+  });
+
+  it('keeps the screen when a background refresh fails, and says the figures may be old', async () => {
+    currentWorld().parseGoal(SENTENCE);
+    currentWorld().createPlan();
+    const { queryClient } = renderWithProviders(<Workbench />);
+    expect(await screen.findByText('summary: 54.00')).toBeInTheDocument();
+
+    sessionStorage.setItem(MOCK_FAILURE_KEY, '1');
+    await queryClient.invalidateQueries();
+    // The runway panel reports its own failure too, so find this message specifically.
+    const message = await screen.findByText(/figures may be out of date/);
+    const alert = message.closest<HTMLElement>('[role="alert"]')!;
+    expect(screen.getByTestId('workbench-grid')).toBeInTheDocument();
+    expect(screen.getByText('summary: 54.00')).toBeInTheDocument();
+
+    sessionStorage.removeItem(MOCK_FAILURE_KEY);
+    await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => {
+      expect(screen.queryByText(/figures may be out of date/)).not.toBeInTheDocument();
+    });
   });
 
   it('labels demo data', async () => {
