@@ -290,6 +290,84 @@ test.describe('Workbench', () => {
     await expect(cell(page, 'inv_juniper', 'dealState')).toContainText('Suggested');
   });
 
+  test('shows what the server sends as it arrives, without a reload', async ({ page }) => {
+    await buildPlan(page);
+    const rail = page.getByRole('region', { name: 'Plan summary' });
+    await rail.getByRole('button', { name: 'Approve plan' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Approve plan' }).click();
+    await expect(rail).toContainText('Plan approved');
+    await expect(rail).toContainText('Committed$0.00');
+
+    // Nothing is committed by approving. Only a server event can say a deal is agreed. These events
+    // are injected through the mock stream, shaped exactly as the API's would be.
+    await page.evaluate(async () => {
+      const emit = window.__termsMockEmit;
+      if (!emit) throw new Error('Mock stream is not available');
+      const at = new Date().toISOString();
+      const { deals } = (await (await fetch('/api/deals')).json()) as {
+        deals: { id: string; invoiceId: string }[];
+      };
+      const juniper = deals.find((d) => d.invoiceId === 'inv_juniper');
+      const { plan } = (await (await fetch('/api/plans/plan_1')).json()) as {
+        plan: { summary: Record<string, unknown> };
+      };
+      emit({
+        id: 'live-1',
+        type: 'deal.updated',
+        at,
+        data: { deal: { ...juniper, state: 'AGREED', countsAsCommitted: true } },
+      });
+      emit({
+        id: 'live-2',
+        type: 'plan.updated',
+        at,
+        data: {
+          planId: 'plan_1',
+          status: 'APPROVED',
+          summary: {
+            ...plan.summary,
+            committed: '4960.00',
+            costSoFar: '40.00',
+            remaining: '1550.00',
+          },
+        },
+      });
+    });
+
+    await expect(cell(page, 'inv_juniper', 'dealState')).toContainText('Agreed');
+    await expect(cell(page, 'inv_juniper', 'committed')).toContainText('$4,960.00');
+    await expect(cell(page, 'inv_juniper', 'committed').locator('span').first()).toHaveClass(
+      /text-committed-strong/,
+    );
+    await expect(cell(page, 'inv_harbor', 'committed')).toHaveText('');
+    await expect(rail).toContainText('Committed$4,960.00');
+    await expect(rail).toContainText('$1,550.00 still to commit');
+    await expect(pinnedTotal(page, 'committed')).toHaveText('$4,960.00');
+    await expect(rail).toContainText('Cost so far$40.00');
+
+    await page.evaluate(() => {
+      window.__termsMockEmit?.({
+        id: 'live-3',
+        type: 'goal.met',
+        at: new Date().toISOString(),
+        data: {
+          goalId: 'goal_1',
+          planId: 'plan_1',
+          target: '6510.00',
+          committed: '6689.00',
+          cost: '61.00',
+          withdrawnDealIds: [],
+        },
+      });
+    });
+    await expect(
+      page
+        .getByRole('region', { name: 'Notifications' })
+        .getByRole('status')
+        .filter({ hasText: 'Goal met' }),
+    ).toContainText('$6,689.00 is committed against a $6,510.00 target');
+  });
+
   test('fits the screen: the page never scrolls sideways', async ({ page }) => {
     await buildPlan(page);
     const overflow = await page.evaluate(

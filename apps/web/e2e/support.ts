@@ -41,3 +41,10 @@ export async function chooseBusiness(page: Page, name: RegExp): Promise<void> {
 export async function waitForAnimations(page: Page): Promise<void> {
   await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
 }
+
+declare global {
+  interface Window {
+    /** Mock mode only: pushes a server event into the open event stream (see src/mocks/browser.ts). */
+    __termsMockEmit?: (event: unknown) => void;
+  }
+}
