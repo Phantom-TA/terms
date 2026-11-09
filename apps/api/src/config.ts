@@ -79,6 +79,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
 
+  // A live PayPal credential is never used from a developer machine (paypal-plan.md, Host).
+  const appHost = new URL(e.APP_BASE_URL).hostname;
+  if (e.PAYPAL_ENV === 'live' && (appHost === 'localhost' || appHost === '127.0.0.1')) {
+    throw new ConfigError('PAYPAL_ENV=live needs a public APP_BASE_URL, not localhost');
+  }
+
   const clientId = e.PAYPAL_CLIENT_ID ?? null;
   const clientSecret = e.PAYPAL_CLIENT_SECRET ?? null;
   const apiKey = e.LLM_API_KEY ?? null;

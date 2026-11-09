@@ -178,7 +178,8 @@ lets a corrected attempt go through later.
 
 ### Unknown outcomes
 
-A connection failure or timeout on a write is **unknown**, never failed. A request that never left
+A connection failure or timeout on a write is **unknown**, never failed. So is a 5xx and an unreadable 2xx body
+(**YOUR CALL**: a 5xx can follow a partial commit at PayPal; `mayHaveTakenEffect` in `apps/api/src/paypal/errors.ts`). A request that never left
 (`AuthError`, `EncodeError`, or our own REST client failing before it sent anything) is **failed** and
 gets no re-read.
 

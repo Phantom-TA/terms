@@ -29,6 +29,13 @@ describe('loadConfig', () => {
     expect(c.appBaseUrl).toBe('https://terms.example.com');
   });
 
+  it('refuses a live PayPal credential on a localhost app', () => {
+    expect(() => loadConfig({ ...base, PAYPAL_ENV: 'live' })).toThrow(ConfigError);
+    expect(() =>
+      loadConfig({ ...base, PAYPAL_ENV: 'live', APP_BASE_URL: 'http://127.0.0.1:3000' }),
+    ).toThrow('public APP_BASE_URL');
+  });
+
   it('rejects a missing database URL and weak production secrets', () => {
     expect(() => loadConfig({})).toThrow(ConfigError);
     expect(() => loadConfig({ ...base, NODE_ENV: 'production', SESSION_SECRET: 'short' })).toThrow(

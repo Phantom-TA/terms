@@ -645,3 +645,37 @@ model EventLog {
 
   @@index([businessId, id])
 }
+
+// ---------------------------------------------------------------------------------------------
+// PayPal writes: claim → call → record (paypal-plan.md, "Durable writes")
+// ---------------------------------------------------------------------------------------------
+
+enum PayPalWriteStatus {
+  /// Claimed; the call is in flight or its process died before recording the result.
+  CLAIMED
+  SUCCEEDED
+  /// PayPal may have acted, but Terms could not learn the answer. Settled by a re-read.
+  UNKNOWN
+}
+
+/// One row per PayPal write, committed before the call. `key` is computed the same way by every
+/// caller doing the same operation, so a second caller is stopped by the unique constraint before
+/// it reaches PayPal. `requestId` is sent as PayPal-Request-Id, which PayPal deduplicates on.
+/// A write PayPal refused is released (deleted) so a corrected attempt can claim again.
+model PayPalWrite {
+  id        String            @id @default(cuid(2))
+  key       String            @unique
+  operation String
+  requestId String            @unique
+  status    PayPalWriteStatus @default(CLAIMED)
+  /// The PayPal id of what the write created or changed (order, capture, token, invoice).
+  resultRef String?
+  /// Diagnostic for UNKNOWN: kind, status and PayPal debug id; never a body or a secret.
+  lastError Json?
+  dealId    String?
+  createdAt DateTime          @default(now())
+  settledAt DateTime?
+
+  @@index([status])
+  @@index([dealId])
+}
