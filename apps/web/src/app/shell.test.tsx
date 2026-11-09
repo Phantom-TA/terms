@@ -197,7 +197,7 @@ describe('app shell', () => {
       within(nav)
         .getAllByRole('link')
         .map((l) => l.textContent),
-    ).toEqual(['Workbench']);
+    ).toEqual(['Workbench', 'Negotiation Room']);
   });
 
   it('shows a client no navigation until client screens exist, so no link goes nowhere', async () => {
