@@ -4,6 +4,8 @@ import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { GoalBar } from './GoalBar';
+import { RunwayPanel } from './RunwayPanel';
+import { TopRail } from './TopRail';
 import { useCurrentGoal, useInvoices } from './queries';
 import { toSummaryRow, toWorkbenchRows } from './rows';
 import { useRowEditing } from './useRowEditing';
@@ -76,6 +78,17 @@ export function Component() {
         {invoices?.demo ? <span className="text-sm text-ink-3">Demo data</span> : null}
       </header>
       <GoalBar goal={goal} hasPlan={plan !== null} clients={clients} />
+      {/* Side by side on wide screens, so the grid starts within the first screenful. */}
+      <div
+        className={
+          plan
+            ? 'grid border-b border-rule xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] xl:*:border-b-0 xl:[&>:last-child]:border-l xl:[&>:last-child]:border-rule'
+            : 'border-b border-rule *:border-b-0'
+        }
+      >
+        {goal && plan ? <TopRail goal={goal} plan={plan} /> : null}
+        <RunwayPanel />
+      </div>
 
       <div className="space-y-3 p-4 lg:p-6">
         {rows.length === 0 ? (

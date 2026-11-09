@@ -23,6 +23,11 @@ vi.mock('./WorkbenchGrid', () => ({
   ),
 }));
 
+// AG Charts draws to a canvas, which jsdom can't. The browser tests cover the drawing.
+vi.mock('./RunwayChart', () => ({
+  RunwayChart: () => <div data-testid="runway-chart" />,
+}));
+
 installMockApi();
 
 const SENTENCE = "I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.";
