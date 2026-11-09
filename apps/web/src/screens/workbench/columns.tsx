@@ -87,6 +87,7 @@ export function buildColumns(deps: ColumnDeps): ColDef<AnyRow>[] {
       headerName: 'Group',
       rowGroup: true,
       hide: true,
+      suppressColumnsToolPanel: true,
       valueGetter: invoiceValue('groupLabel'),
     },
     {
