@@ -123,6 +123,46 @@ describe('checkRowEdit: action', () => {
   });
 });
 
+describe('checkRowEdit: the action has to fit the amount', () => {
+  it('asks for the whole invoice when switching to an early-payment discount', () => {
+    expect(checkRowEdit(rows['Harbor & Co']!, 'action', 'EARLY_DISCOUNT', context)).toMatchObject({
+      ok: true,
+      patch: { action: 'EARLY_DISCOUNT', amountEarly: '7500.00' },
+    });
+  });
+
+  it('asks for half, in $250 steps, when a whole-invoice row becomes a partial payment', () => {
+    expect(checkRowEdit(rows['Juniper Labs']!, 'action', 'PARTIAL_PAYMENT', context)).toMatchObject(
+      {
+        ok: true,
+        patch: { action: 'PARTIAL_PAYMENT', amountEarly: '2500.00' },
+      },
+    );
+  });
+
+  it('keeps an amount that is already partial', () => {
+    const result = checkRowEdit(rows['Harbor & Co']!, 'action', 'PARTIAL_PAYMENT', context);
+    expect(result).toMatchObject({ ok: true, patch: { action: 'PARTIAL_PAYMENT' } });
+    expect(result.ok && result.patch.amountEarly).toBeUndefined();
+  });
+
+  it('refuses part of an invoice on an early-payment discount', () => {
+    const row = { ...rows['Juniper Labs']!, action: 'EARLY_DISCOUNT' as const };
+    expect(checkRowEdit(row, 'amountEarly', '1000', context)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Use Partial payment') as string,
+    });
+  });
+
+  it('refuses the whole invoice on a partial payment', () => {
+    const row = { ...rows['Harbor & Co']!, action: 'PARTIAL_PAYMENT' as const };
+    expect(checkRowEdit(row, 'amountEarly', '7500', context)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Early-payment discount') as string,
+    });
+  });
+});
+
 describe('allowedActions', () => {
   it('offers negotiation only to clients that run an agent', () => {
     expect(allowedActions({ hasAgent: true })).toContain('NEGOTIATE');
