@@ -57,7 +57,7 @@ jobs:
       - name: Secret scan
         run: pnpm check:secrets --all
 
-      - name: Build packages
+      - name: Generate Prisma client and build packages
         run: pnpm build
 
       - name: Typecheck
