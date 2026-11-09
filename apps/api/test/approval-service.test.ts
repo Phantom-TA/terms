@@ -86,6 +86,9 @@ describe('ApprovalService (Postgres)', () => {
     expect((await audit.list(db, ids.harbor, { limit: 5 })).entries[0]!.action).toBe(
       'APPROVAL_REQUESTED',
     );
+    // The request belongs to its deal, so the Negotiation Room finds it by deal.
+    const forDeal = await audit.list(db, ids.maya, { limit: 5, dealId });
+    expect(forDeal.entries.map((e) => e.action)).toEqual(['APPROVAL_REQUESTED']);
   });
 
   it('runs the registered handler in the same transaction as the decision', async () => {

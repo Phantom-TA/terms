@@ -1,3 +1,4 @@
+import { AuditEntry } from '@terms/shared';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { AuditLogger } from '../src/audit.js';
 import { createTestDb, resetDb } from './helpers/db.js';
@@ -36,7 +37,51 @@ describe('AuditLogger (Postgres)', () => {
       cost: '6100',
     });
     expect(entry.paypalRequestId).toBe('deal_1:counter:2');
+    expect(entry.paypalCall).toBeNull();
+    // A DEAL entry belongs to its subject by default.
+    expect(entry.dealId).toBe('deal_1');
+    expect(AuditEntry.safeParse(entry).success).toBe(true);
     expect(seen).toEqual(['POLICY_CHECKED:maya,harbor']);
+  });
+
+  it('records the PayPal call and finds every entry of a deal, whatever its subject', async () => {
+    await audit.write(db, {
+      actor: 'SYSTEM',
+      action: 'PAYPAL_REQUEST',
+      subjectType: 'INVOICE',
+      subjectId: 'inv_1',
+      dealId: 'deal_7',
+      businessIds: ['maya', 'harbor'],
+      summary: 'Invoice 1043 updated: 1.20% off $1,750.00',
+      paypalCall: 'PUT /v2/invoicing/invoices/{id}',
+      paypalRequestId: 'deal_7:update:1',
+    });
+    await audit.write(db, {
+      actor: 'OWNER',
+      action: 'DEAL_TRANSITION',
+      subjectType: 'DEAL',
+      subjectId: 'deal_7',
+      businessIds: ['maya'],
+      summary: 'Approved',
+    });
+    await audit.write(db, {
+      actor: 'SYSTEM',
+      action: 'PLAN_CREATED',
+      subjectType: 'PLAN',
+      subjectId: 'plan_1',
+      businessIds: ['maya'],
+      summary: 'Plan created',
+    });
+    const forDeal = await audit.list(db, 'maya', { limit: 50, dealId: 'deal_7' });
+    expect(forDeal.entries.map((e) => [e.subjectType, e.paypalCall])).toEqual([
+      ['DEAL', null],
+      ['INVOICE', 'PUT /v2/invoicing/invoices/{id}'],
+    ]);
+    const plan = await audit.list(db, 'maya', { limit: 50, subjectType: 'PLAN' });
+    expect(plan.entries[0]!.dealId).toBeNull();
+    // The client sees the PayPal call on its deal, not the owner-only transition.
+    const harbor = await audit.list(db, 'harbor', { limit: 50, dealId: 'deal_7' });
+    expect(harbor.entries).toHaveLength(1);
   });
 
   it('never stores secrets or tokens in details', async () => {

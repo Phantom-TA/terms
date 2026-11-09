@@ -24,6 +24,7 @@ import {
   type PlanItemView,
   type PlanSummary,
   type PolicyCheck,
+  PolicyCheckView,
   toCents,
   type UpdatePlanItemRequest,
 } from '@terms/shared';
@@ -40,6 +41,42 @@ const OPEN_STATUSES = ['SENT', 'UNPAID', 'PARTIALLY_PAID', 'SCHEDULED', 'PAYMENT
 
 export function isOfferAction(action: ActionType): boolean {
   return OFFER_ACTIONS.includes(action);
+}
+
+/** The terms of one plan row that the policy layer checks. */
+export interface RowTerms {
+  action: ActionType;
+  clientId: string;
+  discountBps: number | null;
+  amountEarly: bigint | null;
+}
+
+/** What the row's checks are evaluated against. */
+export interface RowPolicyContext {
+  doNotContact: readonly string[];
+  maxDiscountBps: number;
+  amountDue: bigint;
+  dueDate: string;
+  today: string;
+}
+
+/**
+ * The policy checks for one plan row, the same ones the planner and owner edits are held to.
+ * NONE rows carry only a failed do-not-contact check (so the Workbench can show why the client is
+ * left alone); other NONE rows have nothing to check.
+ */
+export function rowPolicyChecks(row: RowTerms, ctx: RowPolicyContext): PolicyCheck[] {
+  const contact = checkDoNotContact(row.clientId, ctx.doNotContact);
+  if (row.action === 'NONE') return contact.result === 'pass' ? [] : [contact];
+  if (row.action === 'REMINDER') return [contact];
+  const discountBps = row.discountBps ?? 0;
+  return [
+    contact,
+    checkMaxDiscount(discountBps, ctx.maxDiscountBps),
+    checkOverdueNoDiscount(discountBps, ctx.dueDate, ctx.today),
+    checkAmountWithinInvoice(row.amountEarly ?? ctx.amountDue, ctx.amountDue),
+    checkPayByBeforeDue(ctx.today, ctx.dueDate),
+  ];
 }
 
 const planInclude = {
@@ -129,21 +166,37 @@ export class PlanService {
           costCeilingCents: costCeiling ?? policy?.costCeilingCents ?? result.plannedCost,
         },
       });
+      const invoiceById = new Map(invoices.map((inv) => [inv.id, inv]));
       await tx.planItem.createMany({
-        data: result.rows.map((r) => ({
-          planId: plan.id,
-          invoiceId: r.invoiceId,
-          action: r.action,
-          rank: r.rank,
-          backupOrder: r.backupOrder,
-          discountBps: r.discountBps,
-          amountEarlyCents: r.amountEarly,
-          payBy: r.payBy === null ? null : isoToDate(r.payBy),
-          costCents: r.cost,
-          committedIfAgreedCents: r.committedIfAgreed,
-          reasonCode: r.reasonCode,
-          reason: r.reason,
-        })),
+        data: result.rows.map((r) => {
+          const inv = invoiceById.get(r.invoiceId);
+          if (inv === undefined) throw new Error(`Planner returned unknown invoice ${r.invoiceId}`);
+          const checks = rowPolicyChecks(
+            { ...r, clientId: inv.clientId },
+            {
+              doNotContact,
+              maxDiscountBps: goal.maxDiscountBps,
+              amountDue: inv.amountDueCents,
+              dueDate: dateToIso(inv.dueDate),
+              today,
+            },
+          );
+          return {
+            planId: plan.id,
+            invoiceId: r.invoiceId,
+            action: r.action,
+            rank: r.rank,
+            backupOrder: r.backupOrder,
+            discountBps: r.discountBps,
+            amountEarlyCents: r.amountEarly,
+            payBy: r.payBy === null ? null : isoToDate(r.payBy),
+            costCents: r.cost,
+            committedIfAgreedCents: r.committedIfAgreed,
+            reasonCode: r.reasonCode,
+            reason: r.reason,
+            policyChecks: checks.map((c) => ({ ...c })),
+          };
+        }),
       });
       await tx.goal.update({ where: { id: goalId }, data: { status: 'PLANNED' } });
       await this.audit.write(tx, {
@@ -208,8 +261,11 @@ export class PlanService {
       const dueDate = dateToIso(inv.dueDate);
 
       let action: ActionType = edit.excluded === true ? 'NONE' : (edit.action ?? item.action);
-      let checks: PolicyCheck[] = [];
       let data: Prisma.PlanItemUpdateInput;
+      let terms: { discountBps: number | null; amountEarly: bigint | null } = {
+        discountBps: null,
+        amountEarly: null,
+      };
 
       if (action === 'NONE') {
         data = {
@@ -223,7 +279,6 @@ export class PlanService {
           reason: edit.excluded === true ? 'Excluded by you.' : 'No action, set by you.',
         };
       } else if (action === 'REMINDER') {
-        checks = [checkDoNotContact(inv.clientId, doNotContact)];
         data = {
           action,
           discountBps: null,
@@ -275,13 +330,7 @@ export class PlanService {
             },
           );
         }
-        checks = [
-          checkDoNotContact(inv.clientId, doNotContact),
-          checkMaxDiscount(discountBps, plan.goal.maxDiscountBps),
-          checkOverdueNoDiscount(discountBps, dueDate, today),
-          checkAmountWithinInvoice(amountEarly, inv.amountDueCents),
-          checkPayByBeforeDue(today, dueDate),
-        ];
+        terms = { discountBps, amountEarly };
         const cost = discountOn(amountEarly, discountBps);
         data = {
           action,
@@ -295,12 +344,28 @@ export class PlanService {
         };
       }
 
-      if (isBlocked(checks)) {
+      const checks = rowPolicyChecks(
+        { action, clientId: inv.clientId, ...terms },
+        {
+          doNotContact,
+          maxDiscountBps: plan.goal.maxDiscountBps,
+          amountDue: inv.amountDueCents,
+          dueDate,
+          today,
+        },
+      );
+      // Taking no action never breaks policy, even for a protected client.
+      if (action !== 'NONE' && isBlocked(checks)) {
         throw policyBlocked('This change breaks your policy', checks);
       }
       await tx.planItem.update({
         where: { id: item.id },
-        data: { ...data, editedByOwner: true, explanation: null },
+        data: {
+          ...data,
+          editedByOwner: true,
+          explanation: null,
+          policyChecks: checks.map((c) => ({ ...c })),
+        },
       });
       await this.audit.write(tx, {
         actor: 'OWNER',
@@ -433,6 +498,7 @@ function itemView(item: ItemWithInvoice): PlanItemView {
     reason: item.reason,
     explanation: item.explanation,
     editedByOwner: item.editedByOwner,
+    policyChecks: PolicyCheckView.array().parse(item.policyChecks),
     dealId: item.deal?.id ?? null,
     dealState: item.deal?.state ?? null,
   };

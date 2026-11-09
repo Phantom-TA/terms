@@ -434,6 +434,8 @@ model PlanItem {
   /// Plain-language explanation from the plan explainer model.
   explanation            String?
   editedByOwner          Boolean        @default(false)
+  /// Policy checks the server ran on this row (planner or owner edit), as PolicyCheck[].
+  policyChecks           Json           @default("[]")
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 
@@ -611,8 +613,13 @@ model AuditLog {
   paypalDebugId   String?
   paypalRequestId String?
   webhookVerified Boolean?
+  /// The PayPal call this entry records, e.g. "PUT /v2/invoicing/invoices/{id}".
+  paypalCall      String?
+  /// The deal this entry belongs to, whatever its subject type.
+  dealId          String?
 
   @@index([subjectType, subjectId])
+  @@index([dealId])
   @@index([at])
 }
 

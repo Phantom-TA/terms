@@ -27,6 +27,10 @@ export interface AuditInput {
   paypalDebugId?: string | null;
   paypalRequestId?: string | null;
   webhookVerified?: boolean | null;
+  /** The PayPal call this entry records, e.g. "PUT /v2/invoicing/invoices/{id}". */
+  paypalCall?: string | null;
+  /** The deal this entry belongs to. Defaults to the subject for DEAL entries. */
+  dealId?: string | null;
 }
 
 /** Listener notified after an entry is written (used to publish `audit.appended` events). */
@@ -47,6 +51,8 @@ export function toAuditEntry(row: AuditLog): AuditEntry {
     paypalDebugId: row.paypalDebugId,
     paypalRequestId: row.paypalRequestId,
     webhookVerified: row.webhookVerified,
+    paypalCall: row.paypalCall,
+    dealId: row.dealId,
   };
 }
 
@@ -72,6 +78,8 @@ export class AuditLogger {
         paypalDebugId: input.paypalDebugId ?? null,
         paypalRequestId: input.paypalRequestId ?? null,
         webhookVerified: input.webhookVerified ?? null,
+        paypalCall: input.paypalCall ?? null,
+        dealId: input.dealId ?? (input.subjectType === 'DEAL' ? input.subjectId : null),
       },
     });
     const entry = toAuditEntry(row);
@@ -87,6 +95,7 @@ export class AuditLogger {
       ...(query.subjectId === undefined ? {} : { subjectId: query.subjectId }),
       ...(query.actor === undefined ? {} : { actor: query.actor }),
       ...(query.action === undefined ? {} : { action: query.action }),
+      ...(query.dealId === undefined ? {} : { dealId: query.dealId }),
     };
     const rows = await db.auditLog.findMany({
       where,

@@ -113,6 +113,7 @@ export class ApprovalService {
       action: 'APPROVAL_REQUESTED',
       subjectType: 'APPROVAL',
       subjectId: row.id,
+      dealId: row.dealId,
       businessIds: [req.businessId, ...req.visibleTo],
       summary: `${req.title} — waiting for ${req.requestedFrom === 'OWNER' ? 'the owner' : 'a person at the client'}`,
       details: { type: req.type, subject: { type: req.subjectType, id: req.subjectId } },
@@ -166,6 +167,7 @@ export class ApprovalService {
           action: 'APPROVAL_DECIDED',
           subjectType: 'APPROVAL',
           subjectId: decided.id,
+          dealId: decided.dealId,
           businessIds: [decided.businessId, ...(await this.visibleTo(tx, decided))],
           summary: `${decided.title}: ${input.decision.toLowerCase()}`,
           details: { type: decided.type, note: input.note ?? null },
@@ -198,6 +200,7 @@ export class ApprovalService {
         action: 'APPROVAL_DECIDED',
         subjectType: 'APPROVAL',
         subjectId: approvalId,
+        dealId: row.dealId,
         businessIds: [row.businessId, ...(await this.visibleTo(tx, row))],
         summary: `${row.title}: withdrawn (${reason})`,
       });

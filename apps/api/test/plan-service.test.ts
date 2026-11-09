@@ -77,6 +77,20 @@ describe('PlanService (Postgres)', () => {
     expect(byNumber['1038']).toMatchObject({ action: 'REMINDER', countsTowardGoal: false });
     expect(byNumber['1039']).toMatchObject({ action: 'NONE', reasonCode: 'DO_NOT_CONTACT' });
     expect(byNumber['1042']).toMatchObject({ action: 'NONE', reasonCode: 'DO_NOT_CONTACT' });
+    // CR-1: every row carries the checks the server ran on it.
+    expect(byNumber['1041']!.policyChecks.map((c) => `${c.rule}:${c.result}`)).toEqual([
+      'doNotContact:pass',
+      'maxDiscount:pass',
+      'overdueNoDiscount:pass',
+      'amountWithinInvoice:pass',
+      'payByBeforeDue:pass',
+    ]);
+    expect(byNumber['1038']!.policyChecks.map((c) => `${c.rule}:${c.result}`)).toEqual([
+      'doNotContact:pass',
+    ]);
+    expect(byNumber['1039']!.policyChecks).toEqual([
+      expect.objectContaining({ rule: 'doNotContact', result: 'blocked' }),
+    ]);
     // Primary rows come in due-date order.
     expect(view.items.map((i) => i.invoiceNumber)).toEqual([
       '1038',
@@ -125,6 +139,7 @@ describe('PlanService (Postgres)', () => {
       reasonCode: 'OWNER_EDIT',
     });
     expect(edited.policyChecks.every((c) => c.result === 'pass')).toBe(true);
+    expect(row.policyChecks).toEqual(edited.policyChecks);
     expect(edited.plan.summary.plannedCost).toBe('60.00');
 
     // Above the 1.2% maximum: hard block.
@@ -160,7 +175,13 @@ describe('PlanService (Postgres)', () => {
       cost: '0.00',
     });
     expect(excluded.plan.summary.shortfall).toBe(true);
+    // Leaving a protected client alone is always allowed, and the row says why.
+    const keepOut = await service.editItem(planId, pinecrest.id, ids.maya, { action: 'NONE' });
+    expect(keepOut.policyChecks).toEqual([
+      expect.objectContaining({ rule: 'doNotContact', result: 'blocked' }),
+    ]);
     const none = await service.editItem(planId, oak.id, ids.maya, { action: 'NONE' });
+    expect(none.plan.items.find((i) => i.id === oak.id)!.policyChecks).toEqual([]);
     expect(none.plan.summary.bestEffort).toBe('0.00');
     const back = await service.editItem(planId, oak.id, ids.maya, { action: 'REMINDER' });
     expect(back.plan.summary.bestEffort).toBe('1800.00');

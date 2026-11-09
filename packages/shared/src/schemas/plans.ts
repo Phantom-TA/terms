@@ -42,6 +42,11 @@ export const PlanItemView = z.object({
   /** Plain-language explanation from the plan explainer model; null until generated. */
   explanation: z.string().nullable(),
   editedByOwner: z.boolean(),
+  /**
+   * Policy checks the server ran on this row when it was planned or last edited by the owner.
+   * Empty for NONE rows with nothing to check (already paid, excluded by the owner).
+   */
+  policyChecks: z.array(PolicyCheckView),
   dealId: Id.nullable(),
   dealState: DealState.nullable(),
 });
