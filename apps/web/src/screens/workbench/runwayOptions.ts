@@ -60,14 +60,14 @@ const SERIES: readonly {
   { key: 'before', name: 'Before the plan', stroke: CHART_COLORS.before, strokeWidth: 2 },
   {
     key: 'afterPlanned',
-    name: 'If every offer is accepted',
+    name: 'If all accepted',
     stroke: CHART_COLORS.planned,
     strokeWidth: 2,
     lineDash: [6, 4],
   },
   {
     key: 'afterBestEffort',
-    name: 'With reminders paid (best effort, not counted)',
+    name: 'Best effort, not counted',
     stroke: CHART_COLORS.bestEffort,
     strokeWidth: 2,
     lineDash: [2, 3],
@@ -85,8 +85,15 @@ export function buildRunwayOptions(
   options: { strictValidation?: boolean } = {},
 ): AgCartesianChartOptions {
   const payroll = runway.thresholds[0] ?? null;
+  const payrollAmount = payroll ? Number(payroll.amount) : null;
+  const rows = toChartRows(runway);
+  const highest = Math.max(
+    ...rows.flatMap((r) => [r.before, r.afterPlanned, r.afterBestEffort, r.afterCommitted]),
+  );
   return {
-    data: toChartRows(runway),
+    data: rows,
+    // The default minimum is 300px, taller than this panel, which cut the legend off.
+    minHeight: 200,
     background: { fill: 'transparent' },
     legend: { position: 'bottom' },
     series: SERIES.map((s) => ({
@@ -105,21 +112,16 @@ export function buildRunwayOptions(
         type: 'time' as const,
         position: 'bottom' as const,
         label: { format: '%b %d' },
+        // A quiet marker for the day the obligation lands. The red line says what it is.
         ...(payroll
           ? {
               crossLines: [
                 {
                   type: 'line' as const,
                   value: localDate(payroll.date),
-                  stroke: CHART_COLORS.danger,
-                  strokeWidth: 2,
-                  lineDash: [6, 4],
-                  label: {
-                    text: `${payroll.label} ${formatMoney(payroll.amount)} · ${formatDate(payroll.date)}`,
-                    placement: 'top' as const,
-                    color: CHART_COLORS.danger,
-                    fontWeight: 'bold' as const,
-                  },
+                  stroke: CHART_COLORS.before,
+                  strokeWidth: 1,
+                  lineDash: [2, 4],
                 },
               ],
             }
@@ -129,17 +131,33 @@ export function buildRunwayOptions(
         type: 'number' as const,
         position: 'left' as const,
         label: { formatter: ({ value }: { value: number }) => tickLabel(value) },
+        // Cross lines don't widen the axis, so make sure the payroll line is on the chart.
+        ...(payrollAmount !== null && payrollAmount >= highest
+          ? { max: Math.ceil((payrollAmount * 1.2) / 1000) * 1000 }
+          : {}),
         crossLines: [
+          ...(payroll
+            ? [
+                {
+                  type: 'line' as const,
+                  value: Number(payroll.amount),
+                  stroke: CHART_COLORS.danger,
+                  strokeWidth: 2,
+                  label: {
+                    text: `${payroll.label} ${formatMoney(payroll.amount)} · ${formatDate(payroll.date)}`,
+                    placement: 'top-right' as const,
+                    color: CHART_COLORS.danger,
+                    fontWeight: 'bold' as const,
+                  },
+                },
+              ]
+            : []),
           {
             type: 'line' as const,
             value: 0,
-            stroke: CHART_COLORS.danger,
+            stroke: CHART_COLORS.before,
             strokeWidth: 1,
-            label: {
-              text: 'No cash',
-              placement: 'right' as const,
-              color: CHART_COLORS.danger,
-            },
+            label: { text: 'No cash', placement: 'right' as const, color: CHART_COLORS.before },
           },
         ],
       },

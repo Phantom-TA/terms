@@ -6,7 +6,7 @@ import {
   UpdatePlanItemResponse,
 } from '@terms/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MockWorld, PolicyBlockedError } from './world';
+import { MockWorld, PolicyBlockedError, ShapeError } from './world';
 
 const SENTENCE = "I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.";
 
@@ -37,7 +37,9 @@ describe('mock world reproduces the CONTEXT.md scenario', () => {
   it('plans Juniper in full, Harbor $1,750 and a reminder for Oak, for $54', () => {
     world.parseGoal(SENTENCE);
     const plan = world.createPlan();
-    const byClient = Object.fromEntries(plan.items.map((i) => [i.client.name, i]));
+    const byClient = Object.fromEntries(
+      plan.items.filter((i) => i.rank === 'PRIMARY').map((i) => [i.client.name, i]),
+    );
     expect(byClient['Juniper Labs']).toMatchObject({
       action: 'NEGOTIATE',
       amountEarly: '5000.00',
@@ -66,6 +68,39 @@ describe('mock world reproduces the CONTEXT.md scenario', () => {
       goalMet: false,
       shortfall: false,
     });
+  });
+
+  it('creates no deals until the owner approves, as the API does', () => {
+    world.parseGoal(SENTENCE);
+    world.createPlan();
+    expect(world.deals.size).toBe(0);
+    expect(world.invoiceRows().every((row) => row.deal === null)).toBe(true);
+    world.approve('60.00');
+    expect([...world.deals.values()].map((d) => d.state)).toEqual([
+      'APPROVED',
+      'APPROVED',
+      'APPROVED',
+    ]);
+  });
+
+  it('keeps backups out of the plan totals and out of the deals', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const backups = plan.items.filter((i) => i.rank === 'BACKUP');
+    expect(backups).toHaveLength(1);
+    expect(backups[0]).toMatchObject({ backupOrder: 1, amountEarly: '2500.00' });
+    expect(plan.summary.plannedCost).toBe('54.00');
+    world.approve('60.00');
+    expect(world.deals.has('item_inv_harbor_backup_1')).toBe(false);
+  });
+
+  it('refuses an action that does not fit the amount, as the API does', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const harbor = plan.items.find((i) => i.client.name === 'Harbor & Co')!;
+    expect(() => world.updateItem(harbor.id, { action: 'EARLY_DISCOUNT' })).toThrow(ShapeError);
+    const juniper = plan.items.find((i) => i.client.name === 'Juniper Labs')!;
+    expect(() => world.updateItem(juniper.id, { action: 'PARTIAL_PAYMENT' })).toThrow(ShapeError);
   });
 
   it('never counts a reminder or an unagreed deal as committed cash', () => {

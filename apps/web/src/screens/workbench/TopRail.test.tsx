@@ -120,9 +120,30 @@ describe('approving the plan', () => {
     expect(dialog).toHaveTextContent('Send 2 offers worth $6,696.00');
     expect(dialog).toHaveTextContent('Send 1 reminder, free and best effort, never counted');
     expect(dialog).toHaveTextContent('Total discount cost if every offer is accepted: $54.00');
+    expect(dialog).toHaveTextContent('1 backup can go out automatically');
     expect(dialog).toHaveTextContent('Protected clients are never contacted');
     expect(screen.getByLabelText('Cost ceiling')).toHaveValue('60.00');
     expect(await axe(document.body)).toHaveNoViolations();
+  });
+
+  it('does not show an old failure when the dialog is opened again', async () => {
+    draftPlan();
+    server.use(
+      http.post(endpoints.approvePlan.path, () =>
+        HttpResponse.json(
+          { error: { code: 'INTERNAL', message: 'Boom.', retryable: true } },
+          { status: 500 },
+        ),
+      ),
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Approve plan' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Approve plan' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Boom.');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Approve plan' }));
+    await screen.findByRole('dialog');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('changes nothing if the owner cancels', async () => {

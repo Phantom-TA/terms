@@ -10,11 +10,13 @@ import {
   UpdatePlanItemRequest,
   ApprovePlanRequest,
 } from '@terms/shared';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { businesses, health, sessionFor } from './fixtures';
-import { MockWorld, PolicyBlockedError, SUPPLIER_POLICY } from './world';
+import { MockWorld, PolicyBlockedError, ShapeError, SUPPLIER_POLICY } from './world';
 
 const SESSION_KEY = 'terms.mock.session';
+/** Set this sessionStorage key to a number of ms to slow plan edits down, for overlap tests. */
+export const MOCK_SLOW_EDIT_KEY = 'terms.mock.slowEdit';
 /** Set this sessionStorage key to fail matching API calls, for error-state tests. */
 export const MOCK_FAILURE_KEY = 'terms.mock.fail';
 
@@ -156,9 +158,14 @@ export const handlers = [
     const body = UpdatePlanItemRequest.safeParse(await request.json());
     if (!body.success)
       return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid');
+    const slow = Number(sessionStorage.getItem(MOCK_SLOW_EDIT_KEY) ?? 0);
+    if (slow > 0) await delay(slow);
     try {
       return HttpResponse.json(world.updateItem(String(params['itemId']), body.data));
     } catch (error) {
+      if (error instanceof ShapeError) {
+        return errorResponse('VALIDATION_FAILED', error.message);
+      }
       if (error instanceof PolicyBlockedError) {
         return errorResponse('POLICY_BLOCKED', 'That change is blocked by your policy.', {
           policyChecks: error.checks,

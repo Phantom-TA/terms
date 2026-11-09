@@ -15,9 +15,10 @@ export interface ApprovePlanDialogProps {
 }
 
 /** What approving will send, in words the owner can check before anything leaves. */
-export function describePlan(plan: Plan): { offers: number; reminders: number } {
+export function describePlan(plan: Plan): { offers: number; reminders: number; backups: number } {
   const primary = plan.items.filter((item) => item.rank === 'PRIMARY');
   return {
+    backups: plan.items.filter((item) => item.rank === 'BACKUP').length,
     offers: primary.filter((item) => isOfferAction(item.action)).length,
     reminders: primary.filter((item) => item.action === 'REMINDER').length,
   };
@@ -35,7 +36,7 @@ export function ApprovePlanDialog({ plan, open, onOpenChange }: ApprovePlanDialo
   const approve = useApprovePlan();
   const { toast } = useToast();
   const [raw, setRaw] = useState(plan.costCeiling);
-  const { offers, reminders } = describePlan(plan);
+  const { offers, reminders, backups } = describePlan(plan);
 
   const ceiling = normalizeMoneyInput(raw);
   const ceilingError =
@@ -50,45 +51,45 @@ export function ApprovePlanDialog({ plan, open, onOpenChange }: ApprovePlanDialo
       : null;
   const nothingToSend = offers + reminders === 0;
 
-  const submit = () => {
+  const close = () => {
+    approve.reset();
+    onOpenChange(false);
+  };
+
+  const submit = async () => {
     if (ceiling === null || ceilingError !== null) return;
-    approve.mutate(
-      { planId: plan.id, costCeiling: ceiling },
-      {
-        onSuccess: () => {
-          onOpenChange(false);
-          toast({
-            tone: 'success',
-            title: 'Plan approved',
-            description: 'The plan is locked and the approved actions are going out.',
-          });
-        },
-      },
-    );
+    try {
+      // Awaited rather than a mutate callback: approving unmounts this dialog, and a callback
+      // would be dropped with it, so the owner would never be told.
+      await approve.mutateAsync({ planId: plan.id, costCeiling: ceiling });
+    } catch {
+      return; // Shown in the dialog from the mutation's error.
+    }
+    onOpenChange(false);
+    toast({
+      tone: 'success',
+      title: 'Plan approved',
+      description: 'The plan is locked. Each action shows its state in the grid as it goes out.',
+    });
   };
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) approve.reset();
-        onOpenChange(next);
+        if (next) onOpenChange(true);
+        else close();
       }}
       title="Approve this plan?"
       description="Nothing is sent until you approve. After that the plan can't be edited."
       footer={
         <>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              onOpenChange(false);
-            }}
-          >
+          <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button
             variant="primary"
-            onClick={submit}
+            onClick={() => void submit()}
             loading={approve.isPending}
             disabled={ceilingError !== null || nothingToSend}
           >
@@ -112,6 +113,12 @@ export function ApprovePlanDialog({ plan, open, onOpenChange }: ApprovePlanDialo
             Total discount cost if every offer is accepted:{' '}
             <strong>{formatMoney(plan.summary.plannedCost)}</strong>.
           </li>
+          {backups > 0 ? (
+            <li>
+              If an offer is declined, <strong>{plural(backups, 'backup')}</strong> can go out
+              automatically while the total stays under your ceiling.
+            </li>
+          ) : null}
           <li>Protected clients are never contacted.</li>
         </ul>
 
@@ -147,7 +154,7 @@ export function ApprovePlanDialog({ plan, open, onOpenChange }: ApprovePlanDialo
           <ErrorState
             title="The plan was not approved"
             error={approve.error}
-            onRetry={submit}
+            onRetry={() => void submit()}
             retrying={approve.isPending}
           />
         ) : null}

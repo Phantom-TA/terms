@@ -1,8 +1,11 @@
 import {
   type ActionType,
   discountOn,
+  dollars,
   evaluateReminder,
   evaluateSupplierTerms,
+  floorToStep,
+  fromCents,
   isBlocked,
   normalizeMoneyInput,
   normalizePercentInput,
@@ -44,6 +47,9 @@ export function allowedActions(row: Pick<WorkbenchRow, 'hasAgent'>): ActionType[
     : ['NONE', 'REMINDER', 'PARTIAL_PAYMENT', 'EARLY_DISCOUNT'];
 }
 
+/** Partial amounts move in $250 steps, as the planner's do. */
+const PARTIAL_STEP = dollars(250);
+
 const fail = (message: string, checks: PolicyCheck[] = []): EditResult => ({
   ok: false,
   message,
@@ -78,6 +84,15 @@ export function checkRowEdit(
     if (isOfferAction(action)) {
       discountPct ??= context.openingDiscountPct;
       amountEarly ??= row.amountDue;
+      if (action === 'EARLY_DISCOUNT') {
+        amountEarly = row.amountDue;
+        patch.amountEarly = amountEarly;
+      } else if (action === 'PARTIAL_PAYMENT' && toCents(amountEarly) >= toCents(row.amountDue)) {
+        const half = floorToStep(toCents(row.amountDue) / 2n, PARTIAL_STEP);
+        if (half <= 0n) return fail('This invoice is too small to ask for part of it.');
+        amountEarly = fromCents(half);
+        patch.amountEarly = amountEarly;
+      }
     }
   } else if (field === 'discountPct') {
     if (!isOfferAction(row.action))
@@ -90,6 +105,14 @@ export function checkRowEdit(
     if (!isOfferAction(row.action)) return fail('Choose an offer action before setting an amount.');
     const money = normalizeMoneyInput(raw);
     if (money === null) return fail('Enter an amount like 1750.');
+    if (row.action === 'EARLY_DISCOUNT' && toCents(money) !== toCents(row.amountDue)) {
+      return fail(
+        'An early-payment discount covers the whole invoice. Use Partial payment for part of it.',
+      );
+    }
+    if (row.action === 'PARTIAL_PAYMENT' && toCents(money) === toCents(row.amountDue)) {
+      return fail('That is the whole invoice. Use Early-payment discount instead.');
+    }
     amountEarly = money;
     patch.amountEarly = money;
   }

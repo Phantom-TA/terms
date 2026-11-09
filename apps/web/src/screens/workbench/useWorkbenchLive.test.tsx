@@ -1,7 +1,9 @@
-import { type ApprovalView, type ServerEvent } from '@terms/shared';
+import { type ApprovalView, endpoints, type ServerEvent } from '@terms/shared';
 import { act, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { currentWorld } from '../../mocks/handlers';
+import { server } from '../../mocks/server';
 import { FakeEventSource, createFakeEventSource } from '../../test/fakeEventSource';
 import { installMockApi } from '../../test/msw';
 import { renderWithProviders } from '../../test/renderWithProviders';
@@ -9,6 +11,17 @@ import { useCurrentGoal, useInvoices, useRunway } from './queries';
 import { useWorkbenchLive } from './useWorkbenchLive';
 
 installMockApi();
+
+let fetchCount = 0;
+beforeEach(() => {
+  fetchCount = 0;
+  server.events.on('request:start', ({ request }) => {
+    if (request.url.includes('/api/invoices')) fetchCount += 1;
+  });
+  return () => {
+    server.events.removeAllListeners();
+  };
+});
 
 const SENTENCE = "I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.";
 const AT = '2026-11-09T11:00:00Z';
@@ -43,6 +56,7 @@ function Harness() {
 async function setup() {
   currentWorld().parseGoal(SENTENCE);
   currentWorld().createPlan();
+  currentWorld().approve('60.00');
   renderWithProviders(<Harness />, { businessId: 'biz_maya', createSource: createFakeEventSource });
   await screen.findByText('juniper deal');
   const source = FakeEventSource.latest!;
@@ -78,7 +92,7 @@ function approval(overrides: Partial<ApprovalView>): ApprovalView {
 describe('useWorkbenchLive', () => {
   it('changes nothing until the server says something happened', async () => {
     await setup();
-    expect(value('juniper deal')).toHaveTextContent('SUGGESTED');
+    expect(value('juniper deal')).toHaveTextContent('APPROVED');
     expect(value('plan committed')).toHaveTextContent('0.00');
   });
 
@@ -131,13 +145,13 @@ describe('useWorkbenchLive', () => {
         at: AT,
         data: {
           planId: plan.id,
-          status: 'APPROVED',
+          status: 'MET',
           summary: { ...plan.summary, committed: '4960.00' },
         },
       });
     });
     await waitFor(() => {
-      expect(value('plan status')).toHaveTextContent('APPROVED');
+      expect(value('plan status')).toHaveTextContent('MET');
     });
     expect(value('plan committed')).toHaveTextContent('4960.00');
   });
@@ -212,6 +226,80 @@ describe('useWorkbenchLive', () => {
     expect(screen.queryByText('Needs your approval')).not.toBeInTheDocument();
   });
 
+  it('refreshes the rows when an approval is decided, so a stale "Needs you" clears', async () => {
+    const source = await setup();
+    const paypalBefore = fetchCount;
+    act(() => {
+      source.emit({
+        id: 'e7b',
+        type: 'approval.decided',
+        at: AT,
+        data: { approval: approval({ decision: 'EXPIRED' }) },
+      });
+    });
+    await waitFor(() => {
+      expect(fetchCount).toBeGreaterThan(paypalBefore);
+    });
+  });
+
+  it('does not let a response from before an event overwrite it', async () => {
+    const source = await setup();
+    const deal = currentWorld()
+      .invoiceRows()
+      .find((r) => r.id === 'inv_juniper')!.deal!;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get(endpoints.listInvoices.path, async () => {
+        calls += 1;
+        // The first refetch started before the event and answers late, with the old state.
+        if (calls === 1) await gate;
+        const rows = currentWorld().invoiceRows();
+        return HttpResponse.json({
+          rows:
+            calls === 1
+              ? rows
+              : rows.map((r) =>
+                  r.id === 'inv_juniper' ? { ...r, deal: { ...r.deal!, state: 'SENT' } } : r,
+                ),
+          planId: 'plan_1',
+          today: '2026-11-09',
+          lastSyncedAt: null,
+          demo: true,
+        });
+      }),
+    );
+    act(() => {
+      source.emit({
+        id: 'e7c',
+        type: 'approval.decided',
+        at: AT,
+        data: { approval: approval({ decision: 'APPROVED' }) },
+      });
+    });
+    await waitFor(() => {
+      expect(calls).toBe(1);
+    });
+    act(() => {
+      source.emit({
+        id: 'e7d',
+        type: 'deal.updated',
+        at: AT,
+        data: { deal: { ...deal, state: 'SENT' } },
+      });
+    });
+    release();
+    await waitFor(() => {
+      expect(calls).toBe(2);
+    });
+    await waitFor(() => {
+      expect(value('juniper deal')).toHaveTextContent('SENT');
+    });
+  });
+
   it('ignores an event that is not valid, rather than showing it', async () => {
     const source = await setup();
     const bad = { id: 'e8', type: 'deal.updated', at: AT, data: {} } as unknown as ServerEvent;
@@ -221,6 +309,6 @@ describe('useWorkbenchLive', () => {
       source.emit(bad);
     });
     console.error = original;
-    expect(value('juniper deal')).toHaveTextContent('SUGGESTED');
+    expect(value('juniper deal')).toHaveTextContent('APPROVED');
   });
 });

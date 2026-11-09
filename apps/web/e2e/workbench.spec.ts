@@ -183,6 +183,7 @@ test.describe('Workbench', () => {
     const header = grid(page).getByRole('columnheader', { name: 'Discount' });
     await expect(header).toBeVisible();
     await grid(page).getByRole('tab', { name: 'Columns' }).click();
+    await expect(grid(page).locator('.ag-column-select-column-label')).not.toContainText(['Group']);
     // AG Grid hides the native checkbox and labels every one the same way, so find the row by the
     // column's name and click its checkbox wrapper, as a person would.
     const toggle = grid(page)
@@ -193,6 +194,38 @@ test.describe('Workbench', () => {
     await expect(header).toHaveCount(0);
     await toggle.click();
     await expect(header).toBeVisible();
+  });
+
+  test('saving one row leaves an edit open in another row alone', async ({ page }) => {
+    await buildPlan(page);
+    await page.evaluate(() => {
+      sessionStorage.setItem('terms.mock.slowEdit', '600');
+    });
+    await editText(page, cell(page, 'inv_harbor', 'discount'), '1.0');
+
+    // While Harbor is saving, start typing in Juniper's row and don't finish.
+    await cell(page, 'inv_juniper', 'discount').click();
+    const input = page.locator('.ag-cell-inline-editing input');
+    await input.fill('0.9');
+
+    const toasts = page.getByRole('region', { name: 'Notifications' }).getByRole('status');
+    await expect(toasts.filter({ hasText: 'Harbor & Co updated' })).toBeVisible();
+
+    // Harbor's new value arrived, while the half-typed one is still there and nothing was sent.
+    await expect(cell(page, 'inv_harbor', 'discount')).toContainText('1%');
+    await expect(input).toHaveValue('0.9');
+    await expect(toasts.filter({ hasText: 'Juniper Labs updated' })).toHaveCount(0);
+
+    await input.press('Escape');
+    await expect(cell(page, 'inv_juniper', 'discount')).toContainText('0.8%');
+  });
+
+  test('shows the backups in the row they belong to', async ({ page }) => {
+    await buildPlan(page);
+    await grid(page).locator('[row-id="inv_harbor"] .ag-group-contracted').first().click();
+    await expect(page.getByRole('list', { name: 'Backup offers' })).toContainText(
+      'Backup 1: $2,500.00 at 0.8%',
+    );
   });
 
   test('draws the runway before and after the plan, with the payroll line labelled', async ({

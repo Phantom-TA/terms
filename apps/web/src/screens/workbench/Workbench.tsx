@@ -1,5 +1,6 @@
 import { type BusinessRef } from '@terms/shared';
 import { lazy, Suspense, useMemo } from 'react';
+import { Button } from '../../ui/Button';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { SkeletonRows } from '../../ui/Skeleton';
@@ -28,13 +29,7 @@ export function Component() {
   const invoices = invoicesQuery.data;
 
   const rows = useMemo(
-    () =>
-      invoices
-        ? toWorkbenchRows(
-            invoices.rows.map((r) => r),
-            plan?.status ?? null,
-          )
-        : [],
+    () => (invoices ? toWorkbenchRows(invoices.rows, plan?.status ?? null) : []),
     [invoices, plan?.status],
   );
   const summary = useMemo(() => (plan ? toSummaryRow(plan.summary) : null), [plan]);
@@ -55,7 +50,12 @@ export function Component() {
     );
   }
 
-  const failure = goalQuery.error ?? invoicesQuery.error;
+  // Only a screen with nothing to show gets the full-page error. A failed refresh keeps the data.
+  const failure = !goalQuery.data
+    ? goalQuery.error
+    : !invoicesQuery.data
+      ? invoicesQuery.error
+      : null;
   if (failure) {
     return (
       <div className="mx-auto max-w-2xl p-6">
@@ -79,6 +79,24 @@ export function Component() {
         <h1 className="text-xl">Workbench</h1>
         {invoices?.demo ? <span className="text-sm text-ink-3">Demo data</span> : null}
       </header>
+      {goalQuery.isError || invoicesQuery.isError ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 border-y border-warn bg-warn-soft px-4 py-2 text-base text-warn lg:px-6"
+        >
+          <span>Couldn’t refresh, so these figures may be out of date.</span>
+          <Button
+            size="sm"
+            onClick={() => {
+              void goalQuery.refetch();
+              void invoicesQuery.refetch();
+            }}
+            loading={goalQuery.isFetching || invoicesQuery.isFetching}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
       <GoalBar goal={goal} hasPlan={plan !== null} clients={clients} />
       {/* Side by side on wide screens, so the grid starts within the first screenful. */}
       <div

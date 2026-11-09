@@ -1,4 +1,17 @@
-import { AllCommunityModule, ModuleRegistry } from 'ag-charts-community';
+import {
+  CrossLinesModule,
+  LegendModule,
+  LineSeriesModule,
+  ModuleRegistry,
+  NumberAxisModule,
+  TimeAxisModule,
+} from 'ag-charts-community';
 
-// TODO: replace with the individual modules the app uses, to shrink the bundle.
-ModuleRegistry.registerModules([AllCommunityModule]);
+// Only what the runway chart draws, to keep the download small.
+ModuleRegistry.registerModules([
+  LineSeriesModule,
+  TimeAxisModule,
+  NumberAxisModule,
+  LegendModule,
+  CrossLinesModule,
+]);

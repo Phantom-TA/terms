@@ -42,6 +42,36 @@ function Harness({ client, field, raw }: { client: string; field: EditField; raw
   );
 }
 
+function TwoEdits() {
+  const goalQuery = useCurrentGoal();
+  const invoices = useInvoices();
+  const goal = goalQuery.data?.goal ?? null;
+  const plan = goalQuery.data?.plan ?? null;
+  const { onEdit, saving } = useRowEditing(goal, plan, invoices.data?.today ?? '');
+  if (!invoices.data || !plan) return <p>loading</p>;
+  const rows = toWorkbenchRows(invoices.data.rows, plan.status);
+  const row = (name: string) => rows.find((r) => r.clientName === name)!;
+  return (
+    <div>
+      <Button
+        onClick={() => {
+          onEdit(row('Harbor & Co'), 'discountPct', '1.0');
+        }}
+      >
+        Edit Harbor
+      </Button>
+      <Button
+        onClick={() => {
+          onEdit(row('Juniper Labs'), 'discountPct', '0.5');
+        }}
+      >
+        Edit Juniper
+      </Button>
+      <p>saving: {[...saving].join(',') || 'none'}</p>
+    </div>
+  );
+}
+
 function setup(client: string, field: EditField, raw: string) {
   const world = currentWorld();
   world.parseGoal(SENTENCE);
@@ -106,6 +136,76 @@ describe('useRowEditing', () => {
     await waitFor(() => {
       expect(screen.getByText('saving: none')).toBeInTheDocument();
     });
+  });
+
+  it('reports every edit when several overlap, and clears every row', async () => {
+    const world = currentWorld();
+    world.parseGoal(SENTENCE);
+    world.createPlan();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.patch(endpoints.updatePlanItem.path, async ({ params }) => {
+        calls += 1;
+        await gate;
+        if (params['itemId'] === 'item_inv_harbor') {
+          return HttpResponse.json(
+            {
+              error: {
+                code: 'POLICY_BLOCKED',
+                message: 'Blocked.',
+                retryable: false,
+                policyChecks: [
+                  { rule: 'maxDiscount', result: 'blocked', detail: 'Harbor refused' },
+                ],
+              },
+            },
+            { status: 422 },
+          );
+        }
+        return HttpResponse.json(world.updateItem('item_inv_juniper', { discountPct: '0.50' }));
+      }),
+    );
+    renderWithProviders(<TwoEdits />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Edit Harbor' }));
+    await user.click(screen.getByRole('button', { name: 'Edit Juniper' }));
+    expect(screen.getByText('saving: inv_harbor,inv_juniper')).toBeInTheDocument();
+    // One at a time, in order, so a slow answer can't overwrite a newer plan.
+    expect(calls).toBe(1);
+    release();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Harbor refused');
+    expect(await screen.findByText('Juniper Labs updated')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('saving: none')).toBeInTheDocument();
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('shows the field problem when the server rejects the shape of an edit', async () => {
+    setup('Harbor & Co', 'discountPct', '1.0');
+    server.use(
+      http.patch(endpoints.updatePlanItem.path, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'VALIDATION_FAILED',
+              message: 'Invalid request.',
+              retryable: false,
+              issues: [
+                { path: 'amountEarly', message: 'Use PARTIAL_PAYMENT for part of the invoice' },
+              ],
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    await apply();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Use PARTIAL_PAYMENT');
   });
 
   it('shows which rule the server blocked when the server says no', async () => {

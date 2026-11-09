@@ -51,6 +51,8 @@ export interface WorkbenchRow {
   dealState: DealState | null;
   dealId: string | null;
   approval: ApprovalStatus;
+  /** A change to this row is on its way to the server. */
+  saving?: boolean;
 }
 
 export interface SummaryRow {
@@ -83,47 +85,88 @@ function approvalFor(
 ): ApprovalStatus {
   if (row.deal?.pendingApprovalId) return 'needs-you';
   if (planStatus === null || action === 'NONE') return null;
-  return planStatus === 'DRAFT' ? 'awaiting-plan' : 'approved';
+  if (planStatus === 'DRAFT') return 'awaiting-plan';
+  return planStatus === 'APPROVED' || planStatus === 'MET' ? 'approved' : null;
 }
 
-/** One grid row per invoice. Every figure is the server's; nothing is calculated here. */
+const CLOSED_STATUSES: readonly PayPalInvoiceStatus[] = [
+  'PAID',
+  'MARKED_AS_PAID',
+  'CANCELLED',
+  'REFUNDED',
+  'PARTIALLY_REFUNDED',
+  'MARKED_AS_REFUNDED',
+];
+
+/**
+ * Open invoices, plus closed ones that are part of the plan. A deal that has just been paid must
+ * stay on screen as PAID, not vanish at the moment it succeeds.
+ */
+export function belongsOnWorkbench(row: InvoiceRow): boolean {
+  return !CLOSED_STATUSES.includes(row.paypalStatus) || row.planItem !== null;
+}
+
+interface CachedRow {
+  planStatus: PlanStatus | null;
+  row: WorkbenchRow;
+}
+
+const rowCache = new WeakMap<InvoiceRow, CachedRow>();
+
+/**
+ * One grid row per invoice. Every figure is the server's; nothing is calculated here. An unchanged
+ * invoice keeps the same row object, because AG Grid treats a new object as a changed row, and
+ * that would close an editor the owner has open in it.
+ */
 export function toWorkbenchRows(
   invoices: readonly InvoiceRow[],
   planStatus: PlanStatus | null,
 ): WorkbenchRow[] {
-  return invoices.map((invoice) => {
-    const item = invoice.planItem;
-    const action = item?.action ?? 'NONE';
-    const deal = invoice.deal;
-    const isOffer = action !== 'NONE' && action !== 'REMINDER';
-    return {
-      kind: 'invoice',
-      id: invoice.id,
-      invoice,
-      item,
-      clientId: invoice.client.id,
-      clientName: invoice.client.name,
-      number: invoice.number,
-      amountDue: invoice.amountDue,
-      dueDate: invoice.dueDate,
-      daysUntilDue: invoice.daysUntilDue,
-      paypalStatus: invoice.paypalStatus,
-      contactAllowed: invoice.contactAllowed,
-      hasAgent: invoice.client.hasAgent,
-      action,
-      groupLabel: groupLabelFor(invoice.contactAllowed, action),
-      amountEarly: item?.amountEarly ?? null,
-      discountPct: item?.discountPct ?? null,
-      rate: item?.impliedAnnualRate ?? null,
-      cost: item?.cost ?? '0.00',
-      ifAgreed: item?.committedIfAgreed ?? '0.00',
-      committed: deal?.countsAsCommitted ? deal.committedIfAgreed : null,
-      bestEffort: action === 'REMINDER',
-      dealState: deal?.state ?? item?.dealState ?? null,
-      dealId: deal?.id ?? item?.dealId ?? null,
-      approval: isOffer || action === 'REMINDER' ? approvalFor(invoice, action, planStatus) : null,
-    };
+  return invoices.filter(belongsOnWorkbench).map((invoice) => {
+    const cached = rowCache.get(invoice);
+    if (cached?.planStatus === planStatus) return cached.row;
+    const row = toRow(invoice, planStatus);
+    rowCache.set(invoice, { planStatus, row });
+    return row;
   });
+}
+
+function toRow(invoice: InvoiceRow, planStatus: PlanStatus | null): WorkbenchRow {
+  const item = invoice.planItem;
+  const action = item?.action ?? 'NONE';
+  const deal = invoice.deal;
+  const isOffer = action !== 'NONE' && action !== 'REMINDER';
+  return {
+    kind: 'invoice',
+    id: invoice.id,
+    invoice,
+    item,
+    clientId: invoice.client.id,
+    clientName: invoice.client.name,
+    number: invoice.number,
+    amountDue: invoice.amountDue,
+    dueDate: invoice.dueDate,
+    daysUntilDue: invoice.daysUntilDue,
+    paypalStatus: invoice.paypalStatus,
+    contactAllowed: invoice.contactAllowed,
+    hasAgent: invoice.client.hasAgent,
+    action,
+    groupLabel: groupLabelFor(invoice.contactAllowed, action),
+    amountEarly: item?.amountEarly ?? null,
+    discountPct: item?.discountPct ?? null,
+    rate: item?.impliedAnnualRate ?? null,
+    cost: item?.cost ?? '0.00',
+    ifAgreed: item?.committedIfAgreed ?? '0.00',
+    committed: deal?.countsAsCommitted ? deal.committedIfAgreed : null,
+    bestEffort: action === 'REMINDER',
+    // Deals are created when the plan is approved. Until then the row is simply suggested.
+    dealState:
+      deal?.state ??
+      item?.dealState ??
+      (planStatus === 'DRAFT' && action !== 'NONE' ? 'SUGGESTED' : null),
+    dealId: deal?.id ?? item?.dealId ?? null,
+    approval: isOffer || action === 'REMINDER' ? approvalFor(invoice, action, planStatus) : null,
+  };
 }
 
 /** The pinned bottom row. Totals come from the server's plan summary. */

@@ -126,6 +126,10 @@ describe('money columns', () => {
     }
   });
 
+  it('keeps the helper group column out of the column picker', () => {
+    expect(column('group').suppressColumnsToolPanel).toBe(true);
+  });
+
   it('puts the decision columns right after the client', () => {
     const ids = buildColumns({ canEdit: true, onEdit: vi.fn() }).map((c) => c.colId);
     expect(ids.slice(0, 5)).toEqual(['group', 'action', 'ask', 'discount', 'cost']);

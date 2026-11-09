@@ -180,6 +180,15 @@ describe('app shell', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it('keeps a client out of an owner screen opened by its address', async () => {
+    signIn('biz_harbor');
+    renderApp('/workbench', 'biz_harbor');
+    expect(
+      await screen.findByRole('heading', { name: 'This screen is for the other side', level: 1 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/You’re acting as Harbor & Co/)).toBeInTheDocument();
+  });
+
   it('links the owner only to screens that exist', async () => {
     signIn('biz_maya');
     renderApp('/nowhere', 'biz_maya');
