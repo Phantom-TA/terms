@@ -4,6 +4,8 @@ import { useId, useMemo } from 'react';
 import '../../charts/setup';
 import { buildRunwayOptions, describeRunway } from './runwayOptions';
 
+const CHART_STYLE = { height: '100%' };
+
 /**
  * The runway as an AG Chart. A canvas can't be read aloud, so the figures are also written out for
  * screen readers. The wrapper is a group, not an image, because the chart has focusable controls.
@@ -25,7 +27,7 @@ export function RunwayChart({ runway }: { runway: RunwayResponse }) {
       <p id={descriptionId} className="sr-only">
         {describeRunway(runway)}
       </p>
-      <AgCharts options={options} />
+      <AgCharts options={options} style={CHART_STYLE} />
     </div>
   );
 }

@@ -52,7 +52,7 @@ describe('buildRunwayOptions', () => {
     expect(committed).toMatchObject({ yName: 'Committed', stroke: CHART_COLORS.committed });
     expect(committed.lineDash).toBeUndefined();
     const bestEffort = series.find((s) => s.yKey === 'afterBestEffort')!;
-    expect(bestEffort.yName).toMatch(/best effort, not counted/);
+    expect(bestEffort.yName).toBe('Best effort, not counted');
     expect(bestEffort.lineDash).toBeDefined();
     expect(bestEffort.stroke).not.toBe(CHART_COLORS.committed);
   });
@@ -64,28 +64,52 @@ describe('buildRunwayOptions', () => {
     ]);
   });
 
-  it('labels the payroll line with the server’s name, amount and date', () => {
-    const options = buildRunwayOptions(world.runway());
-    const lines = (
-      options.axes as { x: { crossLines: { value: Date; label: { text: string } }[] } }
-    ).x.crossLines;
-    expect(lines).toHaveLength(1);
-    expect(lines[0]?.label.text).toBe('Payroll $11,400.00 · Fri, Nov 13');
-    expect(lines[0]?.value.getDate()).toBe(13);
+  interface Line {
+    value: number | Date;
+    stroke: string;
+    label?: { text: string };
+  }
+  const axes = (options: ReturnType<typeof buildRunwayOptions>) =>
+    options.axes as unknown as {
+      x: { crossLines?: Line[] };
+      y: { crossLines: Line[]; max?: number };
+    };
+
+  it('draws payroll as a labelled horizontal line at the server’s amount', () => {
+    const [payroll] = axes(buildRunwayOptions(world.runway())).y.crossLines;
+    expect(payroll).toMatchObject({
+      value: 11400,
+      stroke: CHART_COLORS.danger,
+      label: { text: 'Payroll $11,400.00 · Fri, Nov 13' },
+    });
   });
 
-  it('marks zero cash', () => {
-    const options = buildRunwayOptions(world.runway());
-    const lines = (
-      options.axes as { y: { crossLines: { value: number; label: { text: string } }[] } }
-    ).y.crossLines;
-    expect(lines[0]).toMatchObject({ value: 0, label: { text: 'No cash' } });
+  it('marks the day payroll lands, quietly', () => {
+    const lines = axes(buildRunwayOptions(world.runway())).x.crossLines!;
+    expect(lines).toHaveLength(1);
+    expect((lines[0]?.value as Date).getDate()).toBe(13);
+    expect(lines[0]?.stroke).not.toBe(CHART_COLORS.danger);
+    expect(lines[0]?.label).toBeUndefined();
+  });
+
+  it('keeps red for payroll alone, and marks zero cash in neutral', () => {
+    const lines = axes(buildRunwayOptions(world.runway())).y.crossLines;
+    expect(lines[1]).toMatchObject({ value: 0, label: { text: 'No cash' } });
+    expect(lines[1]?.stroke).not.toBe(CHART_COLORS.danger);
+  });
+
+  it('widens the axis when payroll is above every balance, so the line is on the chart', () => {
+    const fresh = new MockWorld();
+    const y = axes(buildRunwayOptions(fresh.runway())).y;
+    expect(y.max).toBeGreaterThan(11400);
+    // With the plan, a balance is above payroll and the axis finds its own top.
+    expect(axes(buildRunwayOptions(world.runway())).y.max).toBeUndefined();
   });
 
   it('draws no payroll line when the server reports no threshold', () => {
-    const runway = { ...world.runway(), thresholds: [] };
-    const x = (buildRunwayOptions(runway).axes as { x: { crossLines?: unknown[] } }).x;
-    expect(x.crossLines).toBeUndefined();
+    const lines = axes(buildRunwayOptions({ ...world.runway(), thresholds: [] }));
+    expect(lines.x.crossLines).toBeUndefined();
+    expect(lines.y.crossLines).toHaveLength(1);
   });
 
   it('turns on throwing validations only when asked, for development', () => {
