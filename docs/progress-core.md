@@ -59,7 +59,7 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 | --------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------- |
 | Default negotiation strategies (deterministic mode)                   | PASS        | `apps/api/test/negotiation/strategies.test.ts`: demo flow move by move, property tests         |
 | Negotiation simulator: 0 policy violations in 50 runs                 | PASS        | `scripts/simulate-negotiations.ts`: 50 runs 0 violations; 1,000 runs 0 violations (docs/ai.md) |
-| Negotiation engine (messages, rounds, NEEDS_OWNER, client approvals)  | Not started | Next                                                                                           |
+| Negotiation engine (messages, rounds, NEEDS_OWNER, client approvals)  | PASS        | `apps/api/test/negotiation/engine.test.ts`: full demo on Postgres, guards refuse bad moves     |
 | LLM roles (goal parser, reply parser, negotiators, explainer, writer) | Not started | Needs the LLM API key                                                                          |
 
 ## Contract requests from Developer B

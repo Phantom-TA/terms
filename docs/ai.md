@@ -67,3 +67,44 @@ The first run found two faults, both fixed before these results:
 - Agreements accepted by the supplier were not flagged for the client's person above the auto-pay
   limit. The deal engine requests that approval on every agreement, and the payment service already
   refuses without it.
+
+## Negotiation engine
+
+`apps/api/src/negotiation/engine.ts` runs negotiations on real deals.
+
+**Messages and state.** Each message is a structured `NegotiationMessage`:
+
+- terms, the payer's annual rate, the amount to pay now, the policy checks, the round and the
+  expiry;
+- stored and audited (for both businesses) in the same transaction as the deal transition, before
+  anything is delivered.
+
+**Turns:**
+
+- `sendOffer` sends the approved plan row (round 1).
+- `clientTurn` and `supplierTurn` let each agent move.
+- `runAgents` steps both until the deal waits for something else: the owner, a person, or PayPal.
+
+**What the engine decides on top of the movers:**
+
+- **Guards:** every move is checked against both policies before it takes effect (`guardClientMove`,
+  `guardSupplierMove`). A blocked move throws `POLICY_BLOCKED` and nothing is stored. The LLM
+  negotiators will be held to the same guards.
+- **NEEDS_OWNER:** a move over the plan's ceiling creates a `COUNTER_OVER_PLAN` approval carrying
+  the prepared terms and the cost impact. The owner's yes sends the prepared counter or accept,
+  re-checked against the hard limits. A no declines.
+- **The client's person:** an agreement whose payment is above the client's auto-pay limit creates
+  a `CLIENT_PAYMENT` approval for that exact amount, whoever accepted. The payment service refuses
+  to pay without it.
+- **Expiry:** offers expire after 48 hours. A late answer finds the deal EXPIRED, and `expireDue`
+  closes the rest.
+
+`apps/api/test/negotiation/engine.test.ts` plays the whole demo on Postgres, from the approved plan
+to the agreed deals:
+
+- Juniper: agreed, with its person's approval requested for $4,960.
+- Harbor: counter at 1.5% (23.2% a year), then NEEDS_OWNER at $61 against the $60 ceiling, the
+  owner approves, a counter at 1.2% in round 3, and Harbor accepts at 18.5% a year for $1,729.
+- The plan ends with $6,689 committed against the $6,510 target, for $61, and the goal met.
+
+It also shows that a reckless, sneaky or greedy mover is refused with nothing stored.
