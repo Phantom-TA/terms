@@ -20,13 +20,13 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 
 ## Phase 1: spikes S1–S5
 
-| Spike                                                        | Status      | Evidence                                                                                                                                           |
-| ------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S1 full update of a SENT invoice (discount, partial minimum) | PASS        | `scripts/spikes/s1-invoice-update.ts`; sandbox invoices `INV2-4N8K-4NFN-JHYN-FX26`, `INV2-V8DF-9KKR-9FR3-REUZ`; payer page checked; docs/paypal.md |
-| S2 agent payment recorded against the invoice                | PARTIAL     | Vault order COMPLETED at create (capture `34782754WR027910H`), replay safe; invoice record-payment 404 pending reporting lag; docs/paypal.md       |
-| S3 webhook events and verification                           | Not started | Needs `cloudflared`                                                                                                                                |
-| S4 Transaction Search lag                                    | PARTIAL     | `scripts/spikes/s4-reporting-lag.ts`: ≈2 h lag, 30-min refresh; docs/paypal.md                                                                     |
-| S5 PayPal-wallet vault setup for a client                    | PASS        | `scripts/spikes/s5-vault-setup.ts`: payment token `4hw33165rx315042p` after one approval by Harbor                                                 |
+| Spike                                                        | Status  | Evidence                                                                                                                                                       |
+| ------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1 full update of a SENT invoice (discount, partial minimum) | PASS    | `scripts/spikes/s1-invoice-update.ts`; sandbox invoices `INV2-4N8K-4NFN-JHYN-FX26`, `INV2-V8DF-9KKR-9FR3-REUZ`; payer page checked; docs/paypal.md             |
+| S2 agent payment recorded against the invoice                | PARTIAL | Vault order COMPLETED at create (capture `34782754WR027910H`), replay safe; invoice record-payment 404 pending reporting lag; docs/paypal.md                   |
+| S3 webhook events and verification                           | PASS    | `scripts/spikes/s3-*.ts` via cloudflared: INVOICE.UPDATED, CAPTURE.COMPLETED, re-delivery, INVOICE.PAID (partial) all verified (API and local); docs/paypal.md |
+| S4 Transaction Search lag                                    | PARTIAL | `scripts/spikes/s4-reporting-lag.ts`: ≈2 h lag, 30-min refresh; docs/paypal.md                                                                                 |
+| S5 PayPal-wallet vault setup for a client                    | PASS    | `scripts/spikes/s5-vault-setup.ts`: payment token `4hw33165rx315042p` after one approval by Harbor                                                             |
 
 ## Phase 2: backend core
 

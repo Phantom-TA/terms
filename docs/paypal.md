@@ -41,6 +41,39 @@ What the integration must do, learned from the spike:
 - The create call answered with the full invoice under `Prefer: return=representation`. The send call
   needs no body beyond `send_to_recipient`.
 
+### S3: webhook events and verification — PASS (2026-11-10)
+
+`scripts/spikes/s3-webhook-receiver.ts` ran behind a temporary `cloudflared` tunnel.
+`scripts/spikes/s3-webhooks.ts` registered it for the 28 sandbox event types under `INVOICING.*`,
+`PAYMENT.CAPTURE.*`, `CHECKOUT.ORDER.*` and `VAULT.*`, triggered real events, and deleted the
+registration afterwards.
+
+| What happened                                  | Event received (within ~30 s)                                                                                     | API verify | Local verify |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------- | ------------ |
+| Full update of a SENT invoice                  | `INVOICING.INVOICE.UPDATED`, `resource.invoice.status = SENT`                                                     | SUCCESS    | SUCCESS      |
+| $1.00 vault-funded order (completes at create) | `PAYMENT.CAPTURE.COMPLETED`, carrying our `custom_id`, `invoice_id` and `supplementary_data.related_ids.order_id` | SUCCESS    | SUCCESS      |
+| PayPal re-delivery of that event (`/resend`)   | the same event id again                                                                                           | SUCCESS    | SUCCESS      |
+| $100 recorded on a $4,960 invoice              | `INVOICING.INVOICE.PAID`, `resource.invoice.status = PARTIALLY_PAID`, $4,860 due                                  | SUCCESS    | SUCCESS      |
+
+Design consequences:
+
+- **There is no PARTIALLY_PAID event type.** `INVOICING.INVOICE.PAID` is documented as "paid,
+  partially paid, or payment is made and is pending". The deal engine reads
+  `resource.invoice.status` (and `payments.paid_amount`, `due_amount`) to choose PAID or
+  PARTIALLY_PAID, never the event name alone.
+- **A vault order emits no `CHECKOUT.ORDER.*` event.** It completes at create, so
+  `PAYMENT.CAPTURE.COMPLETED` is the settlement signal for agent payments. The capture's
+  `custom_id` is the Terms deal id, which identifies the deal.
+- **Re-deliveries reuse the event id**, so a unique `WebhookEvent.paypalEventId` makes processing
+  idempotent.
+- **Both verification methods pass.** One is PayPal's `verify-webhook-signature` API, sent the
+  parsed event. The other is local: CRC32 of the raw body, `transmission_id|time|webhook_id|crc`,
+  checked with SHA256withRSA against the PayPal certificate, fetched only from a `paypal.com` host.
+  The receiver uses the API, as CONTEXT.md says, and keeps the raw body so the local check is
+  available if the API is unreachable.
+- Delivery took between 10 and 30 seconds. The UI shows "waiting for PayPal confirmation" in
+  between.
+
 ### S5: vault setup for a client's PayPal wallet — PASS (2026-11-10)
 
 `scripts/spikes/s5-vault-setup.ts` (APIMatic SDK, `client.vault`):
@@ -64,7 +97,8 @@ What the integration must do, learned from the spike:
 | Replay of the create with the same `PayPal-Request-Id`                                                                 | Returned the **same order**; no second charge                                                       |
 | `POST /v2/invoicing/invoices/{id}/payments` with `method: PAYPAL`, `payment_id` = capture id                           | **404 RESOURCE_NOT_FOUND**, three tries over 10 minutes                                             |
 
-The money moved: the capture completed and PayPal holds it. What is still open is linking that
+The money moved: the capture completed and PayPal holds it. A fourth try, about 15 minutes after
+the capture, was still refused. What is still open is linking that
 capture to the invoice. At the time of the tries, PayPal's reporting data was last refreshed two
 hours before the capture (see S4). The likely cause is that Invoicing cannot find a PayPal
 transaction until reporting has it. `s2-agent-payment.ts record 2XX2750553613410D` retries the link

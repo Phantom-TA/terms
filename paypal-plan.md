@@ -254,8 +254,7 @@ The SDK has no webhook surface. Each inbound event is handled in this order:
 3. Store the event as `WebhookEvent`, unique on `paypalEventId`.
 4. Process it only if verification returned `SUCCESS`.
 
-Duplicates are dropped on that unique key. Event names are settled in spike S3, which needs the
-`cloudflared` tunnel.
+Duplicates are dropped on that unique key; PayPal re-deliveries reuse the event id (S3). Settlement signals (S3): `PAYMENT.CAPTURE.COMPLETED` for agent payments, matched by the capture's `custom_id` (deal id), and `INVOICING.INVOICE.PAID` for invoice payments, whose `resource.invoice.status` distinguishes PAID from PARTIALLY_PAID (there is no PARTIALLY_PAID event type).
 
 ## Spikes
 
@@ -272,8 +271,6 @@ The spikes are scripts under `scripts/spikes/`. They run against the sandbox, wr
 
 ## Assumptions and blockers
 
-- **Blocker for S3:** `cloudflared` must be installed so the sandbox can reach our webhook endpoint.
-  The user is installing it.
 - **Needs the user for S2/S5:** one approval click as Harbor & Co in the sandbox, on the vault setup
   approval link. Claude never signs in or enters passwords.
 - **Assumption (minor):** PayPal returns the stored response when a create is replayed with the same
