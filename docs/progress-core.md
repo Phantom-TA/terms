@@ -51,7 +51,7 @@ Not started. Blocked on: APIMatic Context Plugin installed in Claude Code (requi
 | Teammate added as collaborator                                                                                                                                                 | Done (write access)                           |
 | APIMatic Context Plugin for PayPal in Claude Code                                                                                                                              | Done (`paypal@context-plugins` 0.4.1)         |
 | PayPal sandbox: Maya Studio, Juniper Labs, Harbor & Co, Oak Street Bakery, Pinecrest Dental, Birch Legal; REST app on Maya with Invoicing, Vault, Transaction Search, Webhooks | Done (token scopes verified; see below)       |
-| Maya's sandbox balance at $5,200                                                                                                                                               | Pending (account opened at $5,000)            |
+| Maya's sandbox balance at $5,200                                                                                                                                               | Done (shown in the sandbox dashboard)         |
 | LLM API key                                                                                                                                                                    | Pending                                       |
 | Render account                                                                                                                                                                 | Pending (Phase 8)                             |
 
@@ -59,5 +59,5 @@ Not started. Blocked on: APIMatic Context Plugin installed in Claude Code (requi
 
 All six demo accounts are US business sandbox accounts under `@terms-demo.example.com`; the REST app "Terms" is owned by Maya Studio.
 An OAuth client-credentials token was issued, and its scopes include Invoicing, Vault, Transaction Search (`reporting/search`), Payouts and webhook management.
-`GET /v1/reporting/balances` returns USD 5,000.00 for Maya, `GET /v1/notifications/webhooks` returns 200, and `GET /v2/invoicing/invoices` returns 0 invoices.
+`GET /v1/reporting/balances` returned USD 5,000.00 with `as_of_time` 2026-11-09T16:59:59Z, which is earlier than the account itself (created about 18:17 UTC), while the dashboard shows $5,200: reporting data lags (first evidence for spike S4). `GET /v1/notifications/webhooks` returns 200, and `GET /v2/invoicing/invoices` returns 0 invoices.
 The credentials are stored only in the local, gitignored `.env`.
