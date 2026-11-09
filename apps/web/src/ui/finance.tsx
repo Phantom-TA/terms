@@ -52,7 +52,7 @@ export function PolicyBadge({ check }: { check: PolicyCheckLike }) {
 
 export function PolicyBadges({ checks }: { checks: readonly PolicyCheckLike[] }) {
   return (
-    <span className="inline-flex flex-wrap gap-1">
+    <span className="inline-flex flex-wrap gap-1 align-middle">
       {checks.map((check) => (
         <PolicyBadge key={check.rule} check={check} />
       ))}
