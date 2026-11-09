@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MockWorld } from '../../mocks/world';
-import { PROTECTED_GROUP, toSummaryRow, toWorkbenchRows } from './rows';
+import { groupRank, PROTECTED_GROUP, toSummaryRow, toWorkbenchRows } from './rows';
 
 const SENTENCE = "I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.";
 
@@ -118,5 +118,19 @@ describe('toSummaryRow', () => {
       ifAgreed: '6696.00',
       committed: '0.00',
     });
+  });
+});
+
+describe('groupRank', () => {
+  it('lists offers first and protected clients last', () => {
+    const order = [
+      'Do not contact',
+      'No action',
+      'Reminder',
+      'Negotiate',
+      'Early-payment discount',
+    ].sort((a, b) => groupRank(a) - groupRank(b));
+    expect(order.slice(0, 2).sort()).toEqual(['Early-payment discount', 'Negotiate']);
+    expect(order.slice(2)).toEqual(['Reminder', 'No action', 'Do not contact']);
   });
 });

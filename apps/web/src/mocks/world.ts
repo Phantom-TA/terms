@@ -346,7 +346,7 @@ export class MockWorld {
       countsTowardGoal: true,
       reasonCode,
       reason,
-      explanation: `${reason} At ${bpsToPercent(bps)}% ${s.clientName} earns ${impliedAnnualRate(bps, daysEarly)}% a year for paying ${daysEarly} days early.`,
+      explanation: `At ${bpsToPercent(bps)}%, ${s.clientName} earns ${impliedAnnualRate(bps, daysEarly)}% a year for paying ${daysEarly} days early.`,
     };
   }
 

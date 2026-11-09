@@ -64,6 +64,14 @@ export interface SummaryRow {
 
 export const PROTECTED_GROUP = 'Do not contact';
 
+/** Offers first, then reminders, then rows with nothing to do, with protected clients last. */
+export function groupRank(label: string): number {
+  if (label === PROTECTED_GROUP) return 4;
+  if (label === ACTION_LABEL.NONE) return 3;
+  if (label === ACTION_LABEL.REMINDER) return 2;
+  return 1;
+}
+
 export function groupLabelFor(contactAllowed: boolean, action: ActionType): string {
   return contactAllowed ? ACTION_LABEL[action] : PROTECTED_GROUP;
 }

@@ -74,7 +74,7 @@ describe('session gate', () => {
       expect(sessionStorage.getItem('terms.mock.session')).toBe('biz_maya');
     });
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/style-guide');
+      expect(router.state.location.pathname).toBe('/workbench');
     });
   });
 
@@ -180,9 +180,20 @@ describe('app shell', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it('shows no navigation links for screens that do not exist yet', async () => {
+  it('links the owner only to screens that exist', async () => {
     signIn('biz_maya');
     renderApp('/nowhere', 'biz_maya');
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Workbench']);
+  });
+
+  it('shows a client no navigation until client screens exist, so no link goes nowhere', async () => {
+    signIn('biz_harbor');
+    renderApp('/nowhere', 'biz_harbor');
     await screen.findByLabelText('Acting as');
     expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
   });

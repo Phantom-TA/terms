@@ -11,7 +11,14 @@ export interface ScreenDef {
  * Every screen in the app. The navigation and router are built from this list, so a screen
  * appears only once it exists and there are no dead links. Add a screen here when it is built.
  */
-export const screens: readonly ScreenDef[] = [];
+export const screens: readonly ScreenDef[] = [
+  {
+    path: '/workbench',
+    label: 'Workbench',
+    roles: ['SUPPLIER'],
+    load: () => import('../screens/workbench/Workbench'),
+  },
+];
 
 export function screensFor(role: BusinessRole): readonly ScreenDef[] {
   return screens.filter((screen) => screen.roles.includes(role));
