@@ -48,8 +48,16 @@ Not started. Blocked on: APIMatic Context Plugin installed in Claude Code (requi
 | Item                                                                                                                                                                           | Status                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
 | GitHub repo Phantom-TA/terms                                                                                                                                                   | Done (private; make public before submission) |
-| Teammate added as collaborator                                                                                                                                                 | Pending                                       |
-| APIMatic Context Plugin for PayPal in Claude Code                                                                                                                              | Pending                                       |
-| PayPal sandbox: Maya Studio, Juniper Labs, Harbor & Co, Oak Street Bakery, Pinecrest Dental, Birch Legal; REST app on Maya with Invoicing, Vault, Transaction Search, Webhooks | Pending                                       |
+| Teammate added as collaborator                                                                                                                                                 | Done (write access)                           |
+| APIMatic Context Plugin for PayPal in Claude Code                                                                                                                              | Done (`paypal@context-plugins` 0.4.1)         |
+| PayPal sandbox: Maya Studio, Juniper Labs, Harbor & Co, Oak Street Bakery, Pinecrest Dental, Birch Legal; REST app on Maya with Invoicing, Vault, Transaction Search, Webhooks | Done (token scopes verified; see below)       |
+| Maya's sandbox balance at $5,200                                                                                                                                               | Pending (account opened at $5,000)            |
 | LLM API key                                                                                                                                                                    | Pending                                       |
 | Render account                                                                                                                                                                 | Pending (Phase 8)                             |
+
+### Sandbox access check (2026-11-10)
+
+All six demo accounts are US business sandbox accounts under `@terms-demo.example.com`; the REST app "Terms" is owned by Maya Studio.
+An OAuth client-credentials token was issued, and its scopes include Invoicing, Vault, Transaction Search (`reporting/search`), Payouts and webhook management.
+`GET /v1/reporting/balances` returns USD 5,000.00 for Maya, `GET /v1/notifications/webhooks` returns 200, and `GET /v2/invoicing/invoices` returns 0 invoices.
+The credentials are stored only in the local, gitignored `.env`.
