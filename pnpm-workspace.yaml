@@ -11,3 +11,6 @@ allowBuilds:
   '@prisma/engines': true
   esbuild: true
   prisma: true
+  # APIMatic's PayPal TypeScript SDK (Context Plugin), pinned to one commit; its prepare script
+  # builds it with tshy. Not published to npm.
+  'paypal@https://codeload.github.com/context-plugins/paypal-typescript-sdk/tar.gz/5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2': true

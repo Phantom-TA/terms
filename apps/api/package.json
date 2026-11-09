@@ -19,6 +19,7 @@
     "@terms/shared": "workspace:*",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
+    "paypal": "github:context-plugins/paypal-typescript-sdk#5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "zod": "^4.6.7"

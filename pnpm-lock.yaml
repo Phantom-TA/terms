@@ -226,6 +226,9 @@ importers:
       express:
         specifier: ^5.3.0
         version: 5.3.0
+      paypal:
+        specifier: github:context-plugins/paypal-typescript-sdk#5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2
+        version: https://codeload.github.com/context-plugins/paypal-typescript-sdk/tar.gz/5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -1901,6 +1904,11 @@ packages:
 
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
+
+  paypal@https://codeload.github.com/context-plugins/paypal-typescript-sdk/tar.gz/5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2:
+    resolution: {gitHosted: true, integrity: sha512-q4tfU5QqMfck7I8yDD3VvppnfMOJoGvV+9pR8uwHpppNK4ul5h8mPyILUnfgVJVJ67Q8fyE5cQGoJxm7KZV4Jg==, tarball: https://codeload.github.com/context-plugins/paypal-typescript-sdk/tar.gz/5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2}
+    version: 2.29.0
+    engines: {node: '>=20.3'}
 
   perfect-debounce@2.1.0:
     resolution: {integrity: sha512-LjgdTytVFXeUgtHZr9WYViYSM/g8MkcTPYDlPa3cDqMirHjKiSZPYd6DoL7pK8AJQr+uWkQvCjHNdiMqsrJs+g==}
@@ -3945,6 +3953,10 @@ snapshots:
   path-to-regexp@8.4.2: {}
 
   pathe@2.0.3: {}
+
+  paypal@https://codeload.github.com/context-plugins/paypal-typescript-sdk/tar.gz/5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2:
+    dependencies:
+      zod: 4.6.7
 
   perfect-debounce@2.1.0: {}
 
