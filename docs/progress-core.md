@@ -23,10 +23,10 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 | Spike                                                        | Status      | Evidence                                                                                                                                           |
 | ------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | S1 full update of a SENT invoice (discount, partial minimum) | PASS        | `scripts/spikes/s1-invoice-update.ts`; sandbox invoices `INV2-4N8K-4NFN-JHYN-FX26`, `INV2-V8DF-9KKR-9FR3-REUZ`; payer page checked; docs/paypal.md |
-| S2 agent payment recorded against the invoice                | Not started | Needs S5                                                                                                                                           |
+| S2 agent payment recorded against the invoice                | PARTIAL     | Vault order COMPLETED at create (capture `34782754WR027910H`), replay safe; invoice record-payment 404 pending reporting lag; docs/paypal.md       |
 | S3 webhook events and verification                           | Not started | Needs `cloudflared`                                                                                                                                |
-| S4 Transaction Search lag                                    | PARTIAL     | Balances snapshot predated Maya's account (see below); measurement script next                                                                     |
-| S5 PayPal-wallet vault setup for a client                    | Not started | Needs one approval click as Harbor in the sandbox                                                                                                  |
+| S4 Transaction Search lag                                    | PARTIAL     | `scripts/spikes/s4-reporting-lag.ts`: ≈2 h lag, 30-min refresh; docs/paypal.md                                                                     |
+| S5 PayPal-wallet vault setup for a client                    | PASS        | `scripts/spikes/s5-vault-setup.ts`: payment token `4hw33165rx315042p` after one approval by Harbor                                                 |
 
 ## Phase 2: backend core
 
