@@ -29,6 +29,8 @@ export interface TransitionRequest {
   details?: Record<string, unknown>;
   paypalDebugId?: string | null;
   paypalRequestId?: string | null;
+  /** The PayPal call behind this transition, e.g. "PUT /v2/invoicing/invoices/{id}". */
+  paypalCall?: string | null;
 }
 
 export interface DealPatch {
@@ -147,6 +149,7 @@ export class DealStore {
         details: { from, to: req.to, ...(req.details ?? {}) },
         paypalDebugId: req.paypalDebugId ?? null,
         paypalRequestId: req.paypalRequestId ?? null,
+        paypalCall: req.paypalCall ?? null,
       });
       return { deal: await this.get(db, req.dealId), from };
     };
