@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# test output
+coverage/
+playwright-report/
+test-results/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# spike and seed run output (may contain sandbox IDs only; never secrets)
+scripts/spikes/out/
