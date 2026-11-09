@@ -1,6 +1,6 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { AppShell } from './AppShell';
-import { AppLoading, HomeRedirect, NotFound, RouteError } from './pages';
+import { AppLoading, HomeRedirect, NotFound, RequireRole, RouteError } from './pages';
 import { screens } from './screens';
 import { SessionGate } from './SessionGate';
 
@@ -14,7 +14,10 @@ export const routes: RouteObject[] = [
         element: <SessionGate />,
         children: [
           { index: true, element: <HomeRedirect /> },
-          ...screens.map((screen) => ({ path: screen.path, lazy: screen.load })),
+          ...screens.map((screen) => ({
+            element: <RequireRole roles={screen.roles} />,
+            children: [{ path: screen.path, lazy: screen.load }],
+          })),
         ],
       },
       // Internal only. `import.meta.env.DEV` is false in builds, so Vite drops this route.

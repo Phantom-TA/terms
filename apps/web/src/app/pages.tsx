@@ -1,5 +1,6 @@
 import { Compass, LayoutGrid } from 'lucide-react';
-import { Link, Navigate, useRouteError } from 'react-router-dom';
+import { type BusinessRole } from '@terms/shared';
+import { Link, Navigate, Outlet, useRouteError } from 'react-router-dom';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorState } from '../ui/ErrorState';
 import { SkeletonRows } from '../ui/Skeleton';
@@ -32,6 +33,27 @@ export function HomeRedirect() {
         title="Nothing here yet"
       >
         There are no screens for this business yet.
+      </EmptyState>
+    </div>
+  );
+}
+
+/** Keeps each screen to the businesses it is for, even when opened by its address. */
+export function RequireRole({ roles }: { roles: readonly BusinessRole[] }) {
+  const session = useSession();
+  const business = session.data?.business;
+  if (!business || roles.includes(business.role)) return <Outlet />;
+  return (
+    <div className="p-6">
+      <EmptyState
+        headingLevel="h1"
+        icon={<Compass aria-hidden className="size-6" />}
+        title="This screen is for the other side"
+      >
+        <p>You’re acting as {business.name}. Switch business to open it.</p>
+        <Link to="/" className={LINK}>
+          Go to your home screen
+        </Link>
       </EmptyState>
     </div>
   );
