@@ -1,5 +1,6 @@
 import { type DealDetail, type NegotiationMessage } from '@terms/shared';
 import { type CustomCellRendererProps } from 'ag-grid-react';
+import { Link } from 'react-router-dom';
 import { formatDateTime, formatPercent } from '../../lib/display';
 import { ErrorState } from '../../ui/ErrorState';
 import { Money, PolicyBadges, ProtectedTag } from '../../ui/finance';
@@ -151,6 +152,14 @@ export function DetailPanel({ data }: CustomCellRendererProps<AnyRow>) {
       <section aria-label="Negotiation" className="space-y-2">
         <h2 className="text-md">What has been said</h2>
         <Transcript row={data} />
+        {data.dealId && !data.bestEffort ? (
+          <Link
+            to={`/negotiation?deal=${encodeURIComponent(data.dealId)}`}
+            className="inline-block text-sm font-medium text-ink underline underline-offset-2"
+          >
+            Open in the Negotiation Room
+          </Link>
+        ) : null}
       </section>
     </div>
   );
