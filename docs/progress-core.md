@@ -53,6 +53,15 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 | Coverage ≥ 90% lines: planner, deals, plans, approvals                                 | PASS        | 100% lines on each (`pnpm test:coverage`)                                                                                                                                                                        |
 | Negotiation strategies (deterministic mode) and deal engine execution                  | Not started | Next: Phase 4 builds the deterministic strategies first, then the LLM negotiators                                                                                                                                |
 
+## Phase 4: AI and negotiation
+
+| Feature                                                               | Status      | Evidence                                                                                       |
+| --------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------- |
+| Default negotiation strategies (deterministic mode)                   | PASS        | `apps/api/test/negotiation/strategies.test.ts`: demo flow move by move, property tests         |
+| Negotiation simulator: 0 policy violations in 50 runs                 | PASS        | `scripts/simulate-negotiations.ts`: 50 runs 0 violations; 1,000 runs 0 violations (docs/ai.md) |
+| Negotiation engine (messages, rounds, NEEDS_OWNER, client approvals)  | Not started | Next                                                                                           |
+| LLM roles (goal parser, reply parser, negotiators, explainer, writer) | Not started | Needs the LLM API key                                                                          |
+
 ## Contract requests from Developer B
 
 | Request                                              | Status | Evidence                                                                                |

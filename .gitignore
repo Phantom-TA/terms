@@ -35,3 +35,4 @@ scripts/spikes/out/
 
 # generated Prisma client (pnpm db:generate)
 apps/api/src/generated/
+scripts/simulations/
