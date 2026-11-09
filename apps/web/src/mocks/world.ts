@@ -317,6 +317,8 @@ export class MockWorld {
       reason: '',
       explanation: null,
       editedByOwner: false,
+      // contracts-v2 (CR-1): rows carry the server's policy checks. The mock has none yet.
+      policyChecks: [],
       dealId: null,
       dealState: null,
     };

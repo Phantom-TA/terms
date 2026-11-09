@@ -19,6 +19,10 @@ export const AuditEntry = z.object({
   paypalRequestId: z.string().nullable(),
   /** For webhook entries: whether PayPal's signature verification passed. */
   webhookVerified: z.boolean().nullable(),
+  /** The PayPal call this entry records, e.g. "PUT /v2/invoicing/invoices/{id}"; null otherwise. */
+  paypalCall: z.string().nullable(),
+  /** The deal this entry belongs to, when it has one, whatever its subject type. */
+  dealId: Id.nullable(),
 });
 export type AuditEntry = z.infer<typeof AuditEntry>;
 
@@ -28,6 +32,8 @@ export const ListAuditQuery = z.object({
   subjectId: z.string().min(1).optional(),
   actor: Actor.optional(),
   action: AuditAction.optional(),
+  /** Entries that belong to one deal (its transitions, approvals and PayPal calls). */
+  dealId: Id.optional(),
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });

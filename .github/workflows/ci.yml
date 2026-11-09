@@ -57,7 +57,7 @@ jobs:
       - name: Secret scan
         run: pnpm check:secrets --all
 
-      - name: Build packages
+      - name: Generate Prisma client and build packages
         run: pnpm build
 
       - name: Typecheck
@@ -71,6 +71,16 @@ jobs:
 
       - name: Test with coverage
         run: pnpm test:coverage
+
+      # Developer B's web gate (CR-3). Root lint and test exclude apps/web by design, so it runs
+      # here; skipped on branches that do not have the web app yet.
+      - name: Web lint and component tests
+        if: hashFiles('apps/web/package.json') != ''
+        run: pnpm --filter @terms/web lint && pnpm --filter @terms/web test
+
+      - name: Web production build and bundle check
+        if: hashFiles('apps/web/package.json') != ''
+        run: pnpm --filter @terms/web exec vite build && node apps/web/scripts/check-prod-bundle.mjs
 
       - name: Upload coverage
         if: always()

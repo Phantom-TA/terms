@@ -106,4 +106,12 @@ The browser runs the agent loop and calls `POST /api/studio/turn` with the messa
 
 ## Changelog
 
+- **contracts-v2** (2026-11-10), from Developer B's contract requests:
+  - CR-1: `PlanItemView.policyChecks`, the checks the server ran on the row when it was planned or
+    last edited. Do-not-contact rows carry one blocked `doNotContact` check; other NONE rows are
+    empty.
+  - CR-2: `AuditEntry.paypalCall` (e.g. `PUT /v2/invoicing/invoices/{id}`, null when the entry
+    records no PayPal call) and `AuditEntry.dealId` (the deal the entry belongs to, whatever its
+    subject type); `ListAuditQuery.dealId` filters by deal.
+  - `CONTRACTS_VERSION` is 2.
 - **contracts-v1** (2026-11-09): first version.

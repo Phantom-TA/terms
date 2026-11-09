@@ -284,6 +284,6 @@ describe('routes', () => {
     ]) {
       expect(registered.has(required), required).toBe(true);
     }
-    expect(CONTRACTS_VERSION).toBe(1);
+    expect(CONTRACTS_VERSION).toBe(2);
   });
 });

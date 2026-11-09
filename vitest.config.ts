@@ -12,10 +12,15 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
       include: ['packages/*/src/**/*.ts', 'apps/api/src/**/*.ts'],
-      exclude: ['**/*.test.ts', '**/index.ts'],
+      exclude: ['**/*.test.ts', '**/index.ts', 'apps/api/src/generated/**'],
       thresholds: {
         // CONTEXT.md / core prompt: ≥ 90% lines for shared, planner, policy layer and deal engine.
         'packages/shared/src/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/planner/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/deals/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/plans/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/approvals/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/paypal/**': { lines: 90, functions: 85, branches: 85, statements: 90 },
       },
     },
   },

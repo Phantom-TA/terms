@@ -13,6 +13,8 @@ export default defineConfig(
       '**/coverage/**',
       '**/*.tsbuildinfo',
       'prisma/migrations/**',
+      'apps/api/src/generated/**',
+      '.local/**',
       // apps/web is owned by Developer B, who configures its own lint rules.
       'apps/web/**',
     ],
