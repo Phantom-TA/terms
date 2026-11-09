@@ -9,6 +9,7 @@ import { TopRail } from './TopRail';
 import { useCurrentGoal, useInvoices } from './queries';
 import { toSummaryRow, toWorkbenchRows } from './rows';
 import { useRowEditing } from './useRowEditing';
+import { useWorkbenchLive } from './useWorkbenchLive';
 
 // AG Grid Enterprise is large, so the goal bar shouldn't wait for it.
 const WorkbenchGrid = lazy(() =>
@@ -18,6 +19,7 @@ const WorkbenchGrid = lazy(() =>
 const GRID_COLUMNS = 8;
 
 export function Component() {
+  useWorkbenchLive();
   const goalQuery = useCurrentGoal();
   const invoicesQuery = useInvoices();
 
