@@ -10,6 +10,8 @@ export interface ErrorStateProps {
   /** Shows a retry button. Omit it when retrying cannot help. */
   onRetry?: () => void;
   retrying?: boolean;
+  /** Use "h1" when this error is the only content on the page. */
+  headingLevel?: 'h1' | 'h2' | 'h3';
 }
 
 /** Shows a real failure: what went wrong, PayPal's debug ID, and which policy checks blocked it. */
@@ -18,6 +20,7 @@ export function ErrorState({
   title = 'That didn’t work',
   onRetry,
   retrying = false,
+  headingLevel: Heading = 'h2',
 }: ErrorStateProps) {
   const apiError = toApiError(error);
   const debugId = apiError.paypalDebugId;
@@ -29,7 +32,7 @@ export function ErrorState({
         <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
         <div className="min-w-0 flex-1 space-y-2">
           <div>
-            <h2 className="text-md text-danger">{title}</h2>
+            <Heading className="text-md text-danger">{title}</Heading>
             <p className="text-base text-ink">{apiError.message}</p>
             {paypalName ? <p className="text-sm text-ink-2">PayPal said: {paypalName}</p> : null}
             <p className="text-sm text-ink-2">Nothing was marked as done.</p>
