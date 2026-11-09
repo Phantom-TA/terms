@@ -17,6 +17,9 @@ export default defineConfig({
         // CONTEXT.md / core prompt: ≥ 90% lines for shared, planner, policy layer and deal engine.
         'packages/shared/src/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
         'apps/api/src/planner/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/deals/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/plans/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
+        'apps/api/src/approvals/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
       },
     },
   },
