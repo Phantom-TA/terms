@@ -195,6 +195,101 @@ test.describe('Workbench', () => {
     await expect(header).toBeVisible();
   });
 
+  test('draws the runway before and after the plan, with the payroll line labelled', async ({
+    page,
+  }) => {
+    const errors = trackConsoleErrors(page);
+    await buildPlan(page);
+    const chart = page.getByTestId('runway-chart');
+    await expect(chart).toBeVisible();
+    await expect(chart.locator('canvas').first()).toBeVisible();
+    // A canvas can't be read aloud, so the wrapper says what it shows, from the server's figures.
+    await expect(chart).toHaveAccessibleName('Cash runway chart');
+    await expect(chart).toHaveAccessibleDescription(
+      'Cash runway chart. Payroll of $11,400.00 lands Fri, Nov 13. On that day the balance is -$6,200.00 with no plan, $496.00 if every offer is accepted, and -$6,200.00 from committed cash so far.',
+    );
+    await waitForAnimations(page);
+    // AG Charts reports configuration problems by throwing in development, which shows up here.
+    expect(withoutExpectedNotices(errors)).toEqual([]);
+    await expectNoA11yViolations(page);
+  });
+
+  test('can hide the chart to give the grid room', async ({ page }) => {
+    await buildPlan(page);
+    await expect(page.getByTestId('runway-chart')).toBeVisible();
+    await page.getByText('Cash runway', { exact: true }).click();
+    await expect(page.getByTestId('runway-chart')).toBeHidden();
+    await page.getByText('Cash runway', { exact: true }).click();
+    await expect(page.getByTestId('runway-chart')).toBeVisible();
+  });
+
+  test('approves the plan with a cost ceiling, then locks it', async ({ page }) => {
+    await buildPlan(page);
+    const rail = page.getByRole('region', { name: 'Plan summary' });
+    await expect(rail).toContainText('Planned, not committed$6,696.00');
+    await expect(rail).toContainText('Nothing is sent until you approve.');
+
+    await rail.getByRole('button', { name: 'Approve plan' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Approve this plan?' });
+    await expect(dialog).toContainText('Send 2 offers worth $6,696.00');
+    await expect(dialog).toContainText('Send 1 reminder');
+    await expect(dialog).toContainText('Protected clients are never contacted');
+    await expectNoA11yViolations(page);
+
+    await dialog.getByLabel('Cost ceiling').fill('75');
+    await dialog.getByRole('button', { name: 'Approve plan' }).click();
+
+    await expect(
+      page.getByRole('region', { name: 'Notifications' }).getByRole('status'),
+    ).toContainText('Plan approved');
+    await expect(dialog).toBeHidden();
+    await expect(rail).toContainText('Plan approved');
+    await expect(rail).toContainText('ceiling $75.00');
+    await expect(rail.getByRole('button', { name: 'Approve plan' })).toHaveCount(0);
+
+    // Nothing is committed just because the owner approved. Only agreed or paid cash counts.
+    await expect(rail).toContainText('Committed$0.00');
+    await expect(cell(page, 'inv_juniper', 'dealState')).toContainText('Approved');
+    await expect(cell(page, 'inv_juniper', 'approval')).toContainText('Approved by you');
+
+    // The plan is now locked.
+    await cell(page, 'inv_harbor', 'discount').click();
+    await expect(page.locator('.ag-cell-inline-editing')).toHaveCount(0);
+    await cell(page, 'inv_harbor', 'action').click();
+    await expect(page.getByRole('combobox', { name: 'Action' })).toHaveCount(0);
+  });
+
+  test('says when an edit takes the plan over the ceiling, and lets the owner raise it', async ({
+    page,
+  }) => {
+    await buildPlan(page);
+    await editText(page, cell(page, 'inv_harbor', 'discount'), '1.2');
+    await expect(pinnedTotal(page, 'cost')).toHaveText('$61.00');
+
+    const rail = page.getByRole('region', { name: 'Plan summary' });
+    await expect(rail).toContainText('$61.00 planned · ceiling $60.00');
+    await rail.getByRole('button', { name: 'Approve plan' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Approve this plan?' });
+    await expect(dialog).toContainText(
+      'costs $61.00 if every offer is accepted, which is above this ceiling',
+    );
+    await dialog.getByLabel('Cost ceiling').fill('61');
+    await expect(dialog).not.toContainText('which is above this ceiling');
+    await dialog.getByRole('button', { name: 'Approve plan' }).click();
+    await expect(rail).toContainText('Plan approved');
+    await expect(rail).toContainText('ceiling $61.00');
+  });
+
+  test('cancelling the approval changes nothing', async ({ page }) => {
+    await buildPlan(page);
+    const rail = page.getByRole('region', { name: 'Plan summary' });
+    await rail.getByRole('button', { name: 'Approve plan' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect(rail.getByRole('button', { name: 'Approve plan' })).toBeVisible();
+    await expect(cell(page, 'inv_juniper', 'dealState')).toContainText('Suggested');
+  });
+
   test('fits the screen: the page never scrolls sideways', async ({ page }) => {
     await buildPlan(page);
     const overflow = await page.evaluate(
