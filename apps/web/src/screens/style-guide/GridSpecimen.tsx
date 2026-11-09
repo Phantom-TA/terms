@@ -59,13 +59,13 @@ const ROWS: SampleRow[] = [
 ];
 
 const COLUMNS: ColDef<SampleRow>[] = [
-  { field: 'client', flex: 1, minWidth: 130 },
-  { field: 'invoice', width: 84 },
-  { field: 'amount', cellDataType: false, cellRenderer: DiscountedMoneyCell, width: 176 },
-  { field: 'action', cellRenderer: ActionCell, width: 110 },
-  { field: 'state', headerName: 'Deal state', cellRenderer: DealStateCell, width: 150 },
-  { field: 'committed', cellRenderer: CommittedMoneyCell, width: 104 },
-  { field: 'policy', cellDataType: false, cellRenderer: PolicyBadgesCell, flex: 1, minWidth: 210 },
+  { field: 'client', flex: 1, minWidth: 150 },
+  { field: 'invoice', width: 76 },
+  { field: 'amount', cellDataType: false, cellRenderer: DiscountedMoneyCell, width: 168 },
+  { field: 'action', cellRenderer: ActionCell, width: 100 },
+  { field: 'state', headerName: 'Deal state', cellRenderer: DealStateCell, width: 146 },
+  { field: 'committed', cellRenderer: CommittedMoneyCell, width: 96 },
+  { field: 'policy', cellDataType: false, cellRenderer: PolicyBadgesCell, flex: 1, minWidth: 260 },
 ];
 
 const DEFAULT_COLUMN: ColDef<SampleRow> = { suppressHeaderMenuButton: true };
