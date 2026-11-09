@@ -20,17 +20,24 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 
 ## Phase 1: spikes S1–S5
 
-Not started. Blocked on: APIMatic Context Plugin installed in Claude Code (required before any PayPal code), PayPal sandbox accounts and REST app credentials.
+| Spike                                                        | Status      | Evidence                                                                                                                                           |
+| ------------------------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1 full update of a SENT invoice (discount, partial minimum) | PASS        | `scripts/spikes/s1-invoice-update.ts`; sandbox invoices `INV2-4N8K-4NFN-JHYN-FX26`, `INV2-V8DF-9KKR-9FR3-REUZ`; payer page checked; docs/paypal.md |
+| S2 agent payment recorded against the invoice                | Not started | Needs S5                                                                                                                                           |
+| S3 webhook events and verification                           | Not started | Needs `cloudflared`                                                                                                                                |
+| S4 Transaction Search lag                                    | PARTIAL     | Balances snapshot predated Maya's account (see below); measurement script next                                                                     |
+| S5 PayPal-wallet vault setup for a client                    | Not started | Needs one approval click as Harbor in the sandbox                                                                                                  |
 
 ## Phase 2: backend core
 
-| Feature                                                                    | Status      | Evidence                                                        |
-| -------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------- |
-| Local Postgres without Docker (`pnpm db:local`)                            | PASS        | Embedded PostgreSQL 17, UTF-8; integration tests run against it |
-| Prisma schema (every CONTEXT.md table) and initial migration               | PASS        | `prisma/migrations/*_init`; applied locally and in CI           |
-| Config, DB client, typed errors, logger with redaction                     | PASS        | `apps/api/test/config.test.ts`                                  |
-| Audit log (append-only, secret scrubbing, per-business visibility, paging) | PASS        | `apps/api/test/audit.test.ts` (Postgres)                        |
-| PayPal client, sync, webhook receiver                                      | Not started | Waits for the APIMatic plugin and sandbox credentials           |
+| Feature                                                                    | Status      | Evidence                                                                             |
+| -------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| Local Postgres without Docker (`pnpm db:local`)                            | PASS        | Embedded PostgreSQL 17, UTF-8; integration tests run against it                      |
+| Prisma schema (every CONTEXT.md table) and initial migration               | PASS        | `prisma/migrations/*_init`; applied locally and in CI                                |
+| Config, DB client, typed errors, logger with redaction                     | PASS        | `apps/api/test/config.test.ts`                                                       |
+| Audit log (append-only, secret scrubbing, per-business visibility, paging) | PASS        | `apps/api/test/audit.test.ts` (Postgres)                                             |
+| PayPal foundation: write ledger, error mapping, SDK and REST clients       | PASS        | `apps/api/test/paypal/*.test.ts` (fake fetch through the real SDK); `paypal-plan.md` |
+| PayPal sync, webhook receiver                                              | Not started | After spikes S3 and S4                                                               |
 
 ## Phase 3: money logic
 

@@ -9,6 +9,6 @@ export default defineConfig({
     path: 'prisma/migrations',
   },
   datasource: {
-    url: process.env.DATABASE_URL ?? 'postgresql://terms:terms@localhost:5432/terms',
+    url: process.env['DATABASE_URL'] ?? 'postgresql://terms:terms@localhost:5432/terms',
   },
 });
