@@ -37,7 +37,10 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 | Config, DB client, typed errors, logger with redaction                     | PASS        | `apps/api/test/config.test.ts`                                                       |
 | Audit log (append-only, secret scrubbing, per-business visibility, paging) | PASS        | `apps/api/test/audit.test.ts` (Postgres)                                             |
 | PayPal foundation: write ledger, error mapping, SDK and REST clients       | PASS        | `apps/api/test/paypal/*.test.ts` (fake fetch through the real SDK); `paypal-plan.md` |
-| PayPal sync, webhook receiver                                              | Not started | After spikes S3 and S4                                                               |
+| PayPal invoice service (apply terms, remind, record payment)               | PASS        | `apps/api/test/paypal/invoice-service.test.ts`                                       |
+| PayPal vault and agent payment services                                    | PASS        | `apps/api/test/paypal/vault-payment.test.ts`                                         |
+| Settlement and webhook receiver (verify, store once, settle)               | PASS        | `apps/api/test/paypal/webhook-service.test.ts`, incl. real signed S3 deliveries      |
+| PayPal invoice import (sync), HTTP routes                                  | Not started | Phase 6                                                                              |
 
 ## Phase 3: money logic
 
