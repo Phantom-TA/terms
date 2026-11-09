@@ -18,6 +18,8 @@ const pg = new EmbeddedPostgres({
   password: 'terms',
   port,
   persistent: true,
+  // Match production and CI: UTF-8 regardless of the Windows code page.
+  initdbFlags: ['--encoding=UTF8', '--locale=C'],
   onLog: () => undefined,
   onError: (message) => {
     console.error(String(message));
