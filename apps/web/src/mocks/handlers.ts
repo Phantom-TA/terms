@@ -1,7 +1,8 @@
 import {
   type ApiErrorBody,
   CreateGoalRequest,
-  type DealDetail,
+  DecideApprovalRequest,
+  type ServerEvent,
   type ErrorCode,
   ERROR_HTTP_STATUS,
   endpoints,
@@ -21,6 +22,13 @@ export const MOCK_SLOW_EDIT_KEY = 'terms.mock.slowEdit';
 export const MOCK_FAILURE_KEY = 'terms.mock.fail';
 
 let world = new MockWorld();
+
+/** Set by the browser mock, which is the only place with an event stream to push to. */
+export const mockHooks: {
+  emit?: (events: ServerEvent[]) => void;
+  onPlanApproved?: () => void;
+} = {};
+
 /** Gives a test (or a page reload) a fresh demo scenario. */
 export function resetWorld(): MockWorld {
   world = new MockWorld();
@@ -185,7 +193,9 @@ export const handlers = [
     if (shouldFail()) return paypalFailure();
     const body = ApprovePlanRequest.safeParse(await request.json());
     if (!body.success) return errorResponse('VALIDATION_FAILED', 'Set a cost ceiling.');
-    return HttpResponse.json({ plan: world.approve(body.data.costCeiling) });
+    const plan = world.approve(body.data.costCeiling);
+    mockHooks.onPlanApproved?.();
+    return HttpResponse.json({ plan });
   }),
 
   http.get(endpoints.listInvoices.path, () => {
@@ -224,30 +234,38 @@ export const handlers = [
   }),
 
   http.get(endpoints.getDeal.path, ({ params }) => {
-    const deal = [...world.deals.values()].find((d) => d.id === params['dealId']);
-    if (!deal) return errorResponse('NOT_FOUND', 'That deal does not exist.');
-    const detail: DealDetail = {
-      ...deal,
-      paypal: {
-        invoiceId: `INV2-${deal.invoiceNumber}-SBOX-0000-0000`,
-        reissuedInvoiceId: null,
-        orderId: null,
-        captureId: null,
-        invoicePaymentId: null,
-        payerUrl: null,
-      },
-      messages: [],
-      history: [
-        {
-          from: null,
-          to: 'SUGGESTED',
-          actor: 'SYSTEM',
-          reason: 'Added to the plan.',
-          at: deal.updatedAt,
-        },
-      ],
-      approvals: [],
-    };
-    return HttpResponse.json(detail);
+    const detail = world.dealDetail(String(params['dealId']));
+    return detail
+      ? HttpResponse.json(detail)
+      : errorResponse('NOT_FOUND', 'That deal does not exist.');
+  }),
+
+  http.get(endpoints.listAudit.path, ({ request }) => {
+    if (shouldFail()) return paypalFailure();
+    const dealId = new URL(request.url).searchParams.get('dealId');
+    return HttpResponse.json({ entries: world.auditFor(dealId), nextCursor: null });
+  }),
+
+  http.get(endpoints.listApprovals.path, () =>
+    HttpResponse.json({ approvals: world.listApprovals() }),
+  ),
+
+  http.post(endpoints.decideApproval.path, async ({ request, params }) => {
+    const denied = ownerGuard();
+    if (denied) return denied;
+    if (shouldFail()) return paypalFailure();
+    const body = DecideApprovalRequest.safeParse(await request.json());
+    if (!body.success) return errorResponse('VALIDATION_FAILED', 'Choose approve or reject.');
+    try {
+      const { approval, events } = world.decideApproval(
+        String(params['approvalId']),
+        body.data.decision,
+        body.data.note ?? null,
+      );
+      mockHooks.emit?.(events);
+      return HttpResponse.json({ approval, paypalApprovalUrl: null });
+    } catch (error) {
+      return errorResponse('CONFLICT', error instanceof Error ? error.message : 'Already decided.');
+    }
   }),
 ];
