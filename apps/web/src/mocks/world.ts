@@ -114,6 +114,9 @@ export class PolicyBlockedError extends Error {
   }
 }
 
+/** The API's 400 for an action that doesn't fit the amount. */
+export class ShapeError extends Error {}
+
 export class MockWorld {
   goal: Goal | null = null;
   plan: Plan | null = null;
@@ -277,6 +280,24 @@ export class MockWorld {
       }
       return { ...base, reasonCode: 'NOT_NEEDED', reason: 'Not needed for the goal.' };
     });
+    // The next-cheapest offer, used automatically if one is declined and the ceiling allows.
+    const harbor = INVOICES.find((i) => i.id === 'inv_harbor');
+    if (harbor && !blocked.has(harbor.clientId)) {
+      items.push({
+        ...this.offerItem(
+          this.blankItem(harbor),
+          harbor,
+          'NEGOTIATE',
+          2_500_00n,
+          openBps,
+          'BACKUP',
+          'Next-cheapest way to commit the cash if an offer is declined.',
+        ),
+        id: 'item_inv_harbor_backup_1',
+        rank: 'BACKUP',
+        backupOrder: 1,
+      });
+    }
     const plan: Plan = {
       id: 'plan_1',
       goalId: goal.id,
@@ -290,8 +311,6 @@ export class MockWorld {
     this.plan = plan;
     this.goal = { ...goal, status: 'PLANNED', updatedAt: this.stamp() };
     this.deals.clear();
-    for (const item of items) this.syncDeal(item);
-    plan.items = plan.items.map((i) => this.withDeal(i));
     return plan;
   }
 
@@ -456,6 +475,12 @@ export class MockWorld {
           checkOverdueNoDiscount(bps, addDays(TODAY, s.dueInDays), TODAY),
         ]);
       }
+      if (action === 'EARLY_DISCOUNT' && early !== s.amount) {
+        throw new ShapeError('Use PARTIAL_PAYMENT for part of the invoice');
+      }
+      if (action === 'PARTIAL_PAYMENT' && early >= s.amount) {
+        throw new ShapeError('Use EARLY_DISCOUNT for the whole amount');
+      }
       next = this.offerItem(
         { ...current, action },
         s,
@@ -496,14 +521,15 @@ export class MockWorld {
 
     const items = plan.items.map((i) => (i.id === itemId ? next : i));
     this.plan = { ...plan, items, summary: this.summaryFor(goal, items, plan.costCeiling) };
-    this.syncDeal(next);
-    this.plan.items = this.plan.items.map((i) => this.withDeal(i));
     return { plan: this.plan, policyChecks: checks };
   }
 
   approve(costCeiling: string): Plan {
     const plan = this.plan ?? bad('No plan');
     const goal = this.goal ?? bad('No goal');
+    for (const item of plan.items) {
+      if (item.rank === 'PRIMARY' && item.action !== 'NONE') this.syncDeal(item);
+    }
     for (const [key, deal] of this.deals) {
       this.deals.set(key, { ...deal, state: 'APPROVED', updatedAt: this.stamp() });
     }

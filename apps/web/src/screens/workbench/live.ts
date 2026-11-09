@@ -4,6 +4,7 @@ import {
   type RunwayResponse,
   type ServerEventOf,
 } from '@terms/shared';
+import { belongsOnWorkbench } from './rows';
 
 /**
  * Pure reducers that fold server-sent events into the cached Workbench data. The server's event is
@@ -17,6 +18,7 @@ export function applyInvoiceUpdated(
   if (!old) return old;
   const { invoice } = event.data;
   const exists = old.rows.some((row) => row.id === invoice.id);
+  if (!exists && !belongsOnWorkbench(invoice)) return old;
   return {
     ...old,
     rows: exists

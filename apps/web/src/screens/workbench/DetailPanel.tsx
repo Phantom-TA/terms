@@ -45,7 +45,11 @@ function Transcript({ row }: { row: WorkbenchRow }) {
 
   if (row.dealId === null) {
     return row.contactAllowed ? (
-      <p className="text-sm text-ink-3">Nothing has been sent for this invoice.</p>
+      <p className="text-sm text-ink-3">
+        {row.approval === 'awaiting-plan'
+          ? 'Nothing has been sent. Nothing is sent until you approve the plan.'
+          : 'Nothing has been sent for this invoice.'}
+      </p>
     ) : (
       <p className="flex items-center gap-2 text-sm text-ink-2">
         <ProtectedTag /> Terms will never message this client.
@@ -118,6 +122,20 @@ export function DetailPanel({ data }: CustomCellRendererProps<AnyRow>) {
             {item.explanation ? <p className="text-base text-ink-2">{item.explanation}</p> : null}
             {item.editedByOwner ? (
               <p className="text-sm text-ink-3">You changed this row.</p>
+            ) : null}
+            {data.invoice.backups.length > 0 ? (
+              <div className="pt-1">
+                <h3 className="text-base">If another offer is declined</h3>
+                <ul aria-label="Backup offers" className="text-sm text-ink-2">
+                  {data.invoice.backups.map((backup) => (
+                    <li key={backup.id}>
+                      Backup {backup.backupOrder}:{' '}
+                      {backup.amountEarly ? <Money value={backup.amountEarly} /> : null}
+                      {backup.discountPct ? ` at ${formatPercent(backup.discountPct)}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </>
         ) : (

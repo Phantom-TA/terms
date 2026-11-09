@@ -21,7 +21,10 @@ export function useCurrentGoal() {
 }
 
 export function useInvoices() {
-  return useQuery({ queryKey: workbenchKeys.invoices, queryFn: () => api('listInvoices', {}) });
+  return useQuery({
+    queryKey: workbenchKeys.invoices,
+    queryFn: () => api('listInvoices', { query: { includeClosed: 'true' } }),
+  });
 }
 
 export function useRunway() {
@@ -72,6 +75,9 @@ export function useUpdateGoal() {
         goal,
         plan: old?.plan ?? null,
       }));
+      // Who may be contacted, the gap and the deadline all show in the grid and the runway.
+      void queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices });
+      void queryClient.invalidateQueries({ queryKey: workbenchKeys.runway });
     },
   });
 }
@@ -107,12 +113,15 @@ export function useUpdatePlanItem() {
       itemId: string;
       patch: UpdatePlanItemRequest;
     }) => api('updatePlanItem', { params: { planId, itemId }, body: patch }),
-    onSuccess: ({ plan }) => {
+    onSuccess: async ({ plan }) => {
       queryClient.setQueryData<CurrentGoalResponse>(workbenchKeys.goal, (old) =>
         old ? { ...old, plan } : old,
       );
-      void queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices });
-      void queryClient.invalidateQueries({ queryKey: workbenchKeys.runway });
+      // Settle only once the grid has the new rows, so no one edits stale values.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices }),
+        queryClient.invalidateQueries({ queryKey: workbenchKeys.runway }),
+      ]);
     },
   });
 }
@@ -122,12 +131,15 @@ export function useApprovePlan() {
   return useMutation({
     mutationFn: ({ planId, costCeiling }: { planId: string; costCeiling: string }) =>
       api('approvePlan', { params: { planId }, body: { costCeiling } }),
-    onSuccess: ({ plan }) => {
+    onSuccess: async ({ plan }) => {
       queryClient.setQueryData<CurrentGoalResponse>(workbenchKeys.goal, (old) =>
         old?.goal ? { goal: { ...old.goal, status: 'ACTIVE' }, plan } : old,
       );
-      void queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices });
-      void queryClient.invalidateQueries({ queryKey: workbenchKeys.runway });
+      // Settle only once the grid has the new rows, so no one edits stale values.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices }),
+        queryClient.invalidateQueries({ queryKey: workbenchKeys.runway }),
+      ]);
     },
   });
 }

@@ -22,6 +22,7 @@ beforeEach(() => {
   world = new MockWorld();
   world.parseGoal("I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.");
   world.createPlan();
+  world.approve('60.00');
   invoices = {
     rows: world.invoiceRows(),
     planId: 'plan_1',
@@ -60,6 +61,28 @@ describe('applyInvoiceUpdated', () => {
       data: { invoice: { ...juniper, id: 'inv_new', number: '1050' } },
     })!;
     expect(next.rows).toHaveLength(invoices.rows.length + 1);
+  });
+
+  it('ignores a closed invoice that is not part of the plan', () => {
+    const juniper = invoices.rows.find((r) => r.id === 'inv_juniper')!;
+    const next = applyInvoiceUpdated(invoices, {
+      id: 'e2b',
+      type: 'invoice.updated',
+      at: AT,
+      data: { invoice: { ...juniper, id: 'inv_old', planItem: null, paypalStatus: 'PAID' } },
+    });
+    expect(next).toBe(invoices);
+  });
+
+  it('keeps a paid invoice from the plan on screen', () => {
+    const juniper = invoices.rows.find((r) => r.id === 'inv_juniper')!;
+    const next = applyInvoiceUpdated(invoices, {
+      id: 'e2c',
+      type: 'invoice.updated',
+      at: AT,
+      data: { invoice: { ...juniper, paypalStatus: 'PAID', amountDue: '0.00' } },
+    })!;
+    expect(next.rows.find((r) => r.id === 'inv_juniper')?.paypalStatus).toBe('PAID');
   });
 
   it('does nothing before the first load', () => {

@@ -1,5 +1,6 @@
 import { formatMoney } from '@terms/shared';
-import { useQueryClient } from '@tanstack/react-query';
+import { type QueryKey, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { useServerEvent } from '../../api/StreamProvider';
 import { useToast } from '../../ui/Toast';
 import {
@@ -12,8 +13,8 @@ import {
   type CurrentGoalResponse,
   type ListInvoicesResponse,
   type RunwayResponse,
+  workbenchKeys,
 } from './queries';
-import { workbenchKeys } from './queries';
 
 /**
  * Keeps the Workbench current. Each server event is folded into the cached data, so a deal turning
@@ -24,30 +25,37 @@ export function useWorkbenchLive(): void {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  /**
+   * Applies an event. A fetch already in flight may have started before the event, so its answer
+   * could be older; in that case refetch, which replaces that fetch with one that includes it.
+   */
+  const applyEvent = useCallback(
+    <T>(queryKey: QueryKey, update: (old: T | undefined) => T | undefined) => {
+      const refreshing = queryClient.isFetching({ queryKey }) > 0;
+      queryClient.setQueryData<T>(queryKey, update);
+      if (refreshing) void queryClient.invalidateQueries({ queryKey });
+    },
+    [queryClient],
+  );
+
   useServerEvent('invoice.updated', (event) => {
-    queryClient.setQueryData<ListInvoicesResponse>(workbenchKeys.invoices, (old) =>
+    applyEvent<ListInvoicesResponse>(workbenchKeys.invoices, (old) =>
       applyInvoiceUpdated(old, event),
     );
   });
 
   useServerEvent('deal.updated', (event) => {
-    queryClient.setQueryData<ListInvoicesResponse>(workbenchKeys.invoices, (old) =>
-      applyDealUpdated(old, event),
-    );
+    applyEvent<ListInvoicesResponse>(workbenchKeys.invoices, (old) => applyDealUpdated(old, event));
     // The transcript behind an open row may have a new message or state.
     void queryClient.invalidateQueries({ queryKey: workbenchKeys.deal(event.data.deal.id) });
   });
 
   useServerEvent('plan.updated', (event) => {
-    queryClient.setQueryData<CurrentGoalResponse>(workbenchKeys.goal, (old) =>
-      applyPlanUpdated(old, event),
-    );
+    applyEvent<CurrentGoalResponse>(workbenchKeys.goal, (old) => applyPlanUpdated(old, event));
   });
 
   useServerEvent('runway.updated', (event) => {
-    queryClient.setQueryData<RunwayResponse>(workbenchKeys.runway, (old) =>
-      applyRunwayUpdated(old, event),
-    );
+    applyEvent<RunwayResponse>(workbenchKeys.runway, (old) => applyRunwayUpdated(old, event));
   });
 
   useServerEvent('negotiation.message', (event) => {
@@ -71,6 +79,11 @@ export function useWorkbenchLive(): void {
       title: 'Needs your approval',
       description: event.data.approval.title,
     });
+    void queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices });
+  });
+
+  // An approval that was decided, expired or withdrawn clears the row's "Needs you".
+  useServerEvent('approval.decided', () => {
     void queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices });
   });
 

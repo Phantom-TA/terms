@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MockWorld } from '../../mocks/world';
-import { groupRank, PROTECTED_GROUP, toSummaryRow, toWorkbenchRows } from './rows';
+import {
+  belongsOnWorkbench,
+  groupRank,
+  PROTECTED_GROUP,
+  toSummaryRow,
+  toWorkbenchRows,
+} from './rows';
 
 const SENTENCE = "I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.";
 
@@ -41,6 +47,7 @@ describe('toWorkbenchRows', () => {
   });
 
   it('copies committed cash from a deal the server counts as committed', () => {
+    world.approve('60.00');
     const invoices = world
       .invoiceRows()
       .map((row) =>
@@ -85,6 +92,7 @@ describe('toWorkbenchRows', () => {
   });
 
   it('flags a row that needs the owner now', () => {
+    world.approve('60.00');
     const invoices = world.invoiceRows().map((row) =>
       row.id === 'inv_harbor' && row.deal
         ? {
@@ -96,6 +104,42 @@ describe('toWorkbenchRows', () => {
     expect(byClient(toWorkbenchRows(invoices, 'APPROVED'))['Harbor & Co']?.approval).toBe(
       'needs-you',
     );
+  });
+
+  it('never calls a row in a cancelled plan approved', () => {
+    world.approve('60.00');
+    const rows = byClient(toWorkbenchRows(world.invoiceRows(), 'CANCELLED'));
+    expect(rows['Juniper Labs']?.approval).toBeNull();
+  });
+
+  it('shows a draft row as suggested, though deals only exist after approval', () => {
+    const rows = byClient(toWorkbenchRows(world.invoiceRows(), 'DRAFT'));
+    expect(rows['Juniper Labs']?.dealId).toBeNull();
+    expect(rows['Juniper Labs']?.dealState).toBe('SUGGESTED');
+    expect(rows['Pinecrest Dental']?.dealState).toBeNull();
+  });
+
+  it('keeps paid invoices from the plan and drops closed ones that are not', () => {
+    const [first, second] = world.invoiceRows();
+    const paidInPlan = { ...first!, paypalStatus: 'PAID' as const };
+    const paidElsewhere = {
+      ...second!,
+      id: 'inv_old',
+      planItem: null,
+      paypalStatus: 'PAID' as const,
+    };
+    expect(belongsOnWorkbench(paidInPlan)).toBe(true);
+    expect(belongsOnWorkbench(paidElsewhere)).toBe(false);
+    expect(toWorkbenchRows([paidInPlan, paidElsewhere], 'APPROVED').map((r) => r.id)).toEqual([
+      paidInPlan.id,
+    ]);
+  });
+
+  it('keeps the same row object for an unchanged invoice, so an open editor survives', () => {
+    const invoices = world.invoiceRows();
+    const first = toWorkbenchRows(invoices, 'DRAFT');
+    expect(toWorkbenchRows(invoices, 'DRAFT')[0]).toBe(first[0]);
+    expect(toWorkbenchRows(invoices, 'APPROVED')[0]).not.toBe(first[0]);
   });
 
   it('has no plan columns when there is no plan', () => {
