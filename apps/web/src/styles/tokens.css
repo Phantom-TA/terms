@@ -1,0 +1,118 @@
+/*
+ * Terms design tokens. The visual direction is a calm, document-like finance desk: warm paper,
+ * ink type, hairline rules and almost no shadow.
+ *
+ * The accent has one meaning: cash committed. Do not use it for buttons, links or decoration.
+ * Anything drawn in `committed` is money both sides have agreed or PayPal has confirmed.
+ */
+@theme {
+  /* Reset Tailwind's palette so only these tokens can be used. */
+  --color-*: initial;
+
+  --color-transparent: transparent;
+  --color-white: #ffffff;
+
+  /* Surfaces */
+  --color-paper: #f6f4ee;
+  --color-surface: #fffefb;
+  --color-sunken: #efece4;
+
+  /* Ink */
+  --color-ink: #1c1b18;
+  --color-ink-2: #514d44;
+  --color-ink-3: #68635a;
+  --color-on-ink: #fffefb;
+
+  /* Rules */
+  --color-rule: #e0dbd0;
+  --color-rule-strong: #bfb9aa;
+
+  /* The one accent: cash committed */
+  --color-committed: #0b6b57;
+  --color-committed-strong: #084f40;
+  --color-committed-soft: #e1f0ea;
+
+  /* Status */
+  --color-info: #255290;
+  --color-info-soft: #e5edf7;
+  --color-warn: #7f4c00;
+  --color-warn-soft: #faeed7;
+  --color-danger: #a12d25;
+  --color-danger-soft: #f8e5e2;
+  --color-neutral: #514d44;
+  --color-neutral-soft: #ebe7de;
+  --color-protected: #5a4779;
+  --color-protected-soft: #ede8f4;
+
+  /* Negotiating parties */
+  --color-supplier: #33407f;
+  --color-supplier-soft: #e8eaf5;
+  --color-client: #94461f;
+  --color-client-soft: #f7e9e0;
+
+  /* Focus */
+  --color-focus: #255290;
+
+  /* Type */
+  --font-display: 'Newsreader Variable', 'Iowan Old Style', Georgia, serif;
+  --font-sans: 'IBM Plex Sans Variable', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --text-*: initial;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.125rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.75rem;
+  --text-xl--line-height: 2.125rem;
+  --text-2xl: 2.5rem;
+  --text-2xl--line-height: 2.75rem;
+
+  /* Radii: small, like the corners of a printed form */
+  --radius-*: initial;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  --shadow-*: initial;
+  --shadow-overlay: 0 1px 2px rgb(28 27 24 / 0.08), 0 12px 32px rgb(28 27 24 / 0.14);
+
+  --animate-pulse-soft: pulse-soft 1.8s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-enter: enter 180ms ease-out;
+
+  @keyframes pulse-soft {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
