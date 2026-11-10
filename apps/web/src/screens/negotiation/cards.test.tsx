@@ -8,7 +8,7 @@ import { currentWorld } from '../../mocks/handlers';
 import { server } from '../../mocks/server';
 import { installMockApi } from '../../test/msw';
 import { renderWithProviders } from '../../test/renderWithProviders';
-import { ApprovalCard } from './ApprovalCard';
+import { ApprovalCard } from '../approvals/ApprovalCard';
 import { MessageCard, partyLabel } from './MessageCard';
 import { settlementSteps } from './SettlementSteps';
 
