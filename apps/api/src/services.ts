@@ -131,11 +131,14 @@ export function buildServices(
         plan: { select: { goal: { select: { supplierId: true } } } },
       },
     });
+    // Each side gets its own view: the pending approval it may decide is its own.
     for (const deal of rows) {
-      await events.publish([deal.plan.goal.supplierId, deal.clientId], {
-        type: 'deal.updated',
-        data: { deal: dealSummary(deal) },
-      });
+      for (const viewer of [deal.plan.goal.supplierId, deal.clientId]) {
+        await events.publish([viewer], {
+          type: 'deal.updated',
+          data: { deal: dealSummary(deal, viewer) },
+        });
+      }
     }
   };
 

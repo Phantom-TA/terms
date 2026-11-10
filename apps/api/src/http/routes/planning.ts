@@ -115,7 +115,7 @@ export function registerPlanningRoutes(router: Router, s: Services): void {
       include: dealSummaryInclude,
       orderBy: [{ invoice: { dueDate: 'asc' } }, { createdAt: 'asc' }],
     });
-    return { planId, deals: deals.map(dealSummary) };
+    return { planId, deals: deals.map((d) => dealSummary(d, session.businessId)) };
   });
 
   route(router, s.sessions, endpoints.getDeal, ({ params, session }) =>
@@ -166,7 +166,7 @@ export function registerPlanningRoutes(router: Router, s: Services): void {
         lastSyncedAt: inv.lastSyncedAt.toISOString(),
         planItem: items.find((i) => i.rank === 'PRIMARY') ?? null,
         backups: items.filter((i) => i.rank === 'BACKUP'),
-        deal: deal === undefined ? null : dealSummary(deal),
+        deal: deal === undefined ? null : dealSummary(deal, session.businessId),
       };
     });
     return {

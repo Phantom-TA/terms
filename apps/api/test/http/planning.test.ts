@@ -2,9 +2,11 @@ import {
   CurrentGoalResponse,
   DealDetail,
   GoalResponse,
+  ListAuditResponse,
   ListDealsResponse,
   ListInvoicesResponse,
   PlanResponse,
+  ServerEvent,
   UpdatePlanItemResponse,
 } from '@terms/shared';
 import type express from 'express';
@@ -185,10 +187,48 @@ describe('owner flow through the API: goal → plan → approve', () => {
     ]);
     expect(detail.approvals[0]).toMatchObject({ type: 'COUNTER_OVER_PLAN' });
 
+    // The owner reads its own reasons and the checks behind its own messages, not Harbor's.
+    expect(detail.history.map((h) => h.reason)).toEqual([
+      'Approved in plan with a $60.00 ceiling',
+      'Offer sent: 0.80% on $1,750.00',
+      'Countered',
+      'A counter at 1.20% costs $1.00 over the $60.00 ceiling',
+    ]);
+    expect(detail.messages.map((m) => m.policyChecks.length > 0)).toEqual([true, false]);
+
+    // Harbor shares the deal but not Maya's ceiling, her approval, or the checks behind her offer.
     const harbor = await signedIn(app, ids.harbor);
-    expect(
-      DealDetail.parse((await harbor.get(`/api/deals/${harborDeal}`).expect(200)).body).id,
-    ).toBe(harborDeal);
+    const seen = DealDetail.parse((await harbor.get(`/api/deals/${harborDeal}`).expect(200)).body);
+    expect(seen).toMatchObject({ id: harborDeal, state: 'NEEDS_OWNER', pendingApprovalId: null });
+    expect(seen.approvals).toEqual([]);
+    expect(seen.history.map((h) => h.reason)).toEqual([
+      'Approved',
+      'Offer sent: 0.80% on $1,750.00',
+      '1.50% reaches our 23.00% target',
+      'Waiting for the supplier',
+    ]);
+    expect(seen.messages.map((m) => m.policyChecks.length > 0)).toEqual([false, true]);
+    expect(JSON.stringify(seen)).not.toMatch(/ceiling/);
+    const harborAudit = ListAuditResponse.parse(
+      (await harbor.get(`/api/audit?dealId=${harborDeal}&limit=100`).expect(200)).body,
+    );
+    expect(JSON.stringify(harborAudit)).not.toMatch(/ceiling|COUNTER_OVER_PLAN/);
+
+    // Live updates are per side too: only the owner's carries the approval it can decide.
+    await services.publishDeals([harborDeal]);
+    const lastDealUpdate = async (businessId: string) => {
+      const row = await db.eventLog.findFirstOrThrow({
+        where: { businessId, type: 'deal.updated' },
+        orderBy: { id: 'desc' },
+      });
+      return ServerEvent.parse(row.payload);
+    };
+    expect(await lastDealUpdate(ids.maya)).toMatchObject({
+      data: { deal: { id: harborDeal, pendingApprovalId: detail.pendingApprovalId } },
+    });
+    expect(await lastDealUpdate(ids.harbor)).toMatchObject({
+      data: { deal: { id: harborDeal, pendingApprovalId: null } },
+    });
     const juniper = await signedIn(app, ids.juniper);
     await juniper.get(`/api/deals/${harborDeal}`).expect(404);
     await harbor.get('/api/deals').expect(403); // owner route
