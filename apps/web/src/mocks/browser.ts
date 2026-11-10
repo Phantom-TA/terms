@@ -1,7 +1,8 @@
 import { paths, type ServerEvent, type ServerEventType } from '@terms/shared';
 import { sse } from 'msw';
 import { setupWorker } from 'msw/browser';
-import { currentWorld, handlers, mockHooks } from './handlers';
+import { currentDesk, currentWorld, handlers, mockHooks, sessionBusiness } from './handlers';
+import { isMockPayment, MOCK_PAYPAL_CHANNEL } from '../screens/dev/mockPayPalChannel';
 
 declare global {
   interface Window {
@@ -18,9 +19,16 @@ const senders = new Set<(event: ServerEvent) => void>();
 const streamHandler = sse<Record<ServerEventType, string>>(
   paths.stream(),
   ({ client, request }) => {
-    const sender = (event: ServerEvent) => {
+    const business = sessionBusiness();
+    const sender = (raw: ServerEvent) => {
+      // As on the real server, each session hears only its own business's records.
+      const event = business ? currentDesk().eventFor(raw, business) : null;
+      if (!event) return;
       client.send({ id: event.id, event: event.type, data: JSON.stringify(event) });
     };
+    // The app keeps one stream per tab, so a new one (after switching business, say) replaces
+    // the old, which can't be written to any more. MSW doesn't always abort the old request.
+    senders.clear();
     senders.add(sender);
     // A closed stream (a reconnect, or leaving for PayPal) can't be written to any more.
     request.signal.addEventListener('abort', () => {
@@ -64,5 +72,14 @@ if (!navigator.webdriver) {
     }, 800);
   };
 }
+
+// A payment made on the stand-in PayPal page, in another tab, arrives as PayPal's webhook would.
+new BroadcastChannel(MOCK_PAYPAL_CHANNEL).onmessage = (message: MessageEvent<unknown>) => {
+  if (!isMockPayment(message.data)) return;
+  const world = currentWorld();
+  // Only the tab whose demo approved this payment has it waiting; any other tab ignores it.
+  if (!world.paymentApproved(message.data.dealId)) return;
+  play(world.confirmPayment(message.data.dealId));
+};
 
 export const worker = setupWorker(...handlers, streamHandler);

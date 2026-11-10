@@ -1,12 +1,17 @@
+import { type ReactNode } from 'react';
+
 export interface PendingNoticeProps {
   title?: string;
   detail?: string;
+  /** Something the person can do meanwhile, such as a link to PayPal. */
+  children?: ReactNode;
 }
 
 /** The state between a client approving and the verified webhook arriving. Never shown as done. */
 export function PendingNotice({
   title = 'Waiting for PayPal confirmation',
   detail,
+  children,
 }: PendingNoticeProps) {
   return (
     <div
@@ -17,6 +22,7 @@ export function PendingNotice({
       <div>
         <p className="text-base font-medium text-ink">{title}</p>
         {detail ? <p className="text-sm text-ink-2">{detail}</p> : null}
+        {children}
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import { delay, http, HttpResponse } from 'msw';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { browser } from '../../lib/browser';
-import { currentWorld } from '../../mocks/handlers';
+import { currentDesk, currentWorld } from '../../mocks/handlers';
 import { server } from '../../mocks/server';
 import { createFakeEventSource, FakeEventSource } from '../../test/fakeEventSource';
 import { installMockApi } from '../../test/msw';
@@ -117,18 +117,95 @@ describe('Payables Desk', () => {
     expect(await screen.findByTestId('offers-grid')).toBeInTheDocument();
   });
 
-  it('sends a person to PayPal to approve a payment over the limit', async () => {
+  it('opens the PayPal invoice in a new tab, then waits for PayPal to confirm', async () => {
     negotiated();
+    const go = vi.fn();
+    const close = vi.fn();
+    const openTab = vi.spyOn(browser, 'openTab').mockReturnValue({ go, close });
     const assign = vi.spyOn(browser, 'assign').mockImplementation(() => undefined);
     renderDesk();
     const card = await screen.findByRole('region', {
       name: 'Needs your approval: Approve the $4,960.00 payment to Maya Studio',
     });
-    await userEvent.click(within(card).getByRole('button', { name: 'Approve in PayPal' }));
+    await userEvent.click(within(card).getByRole('button', { name: 'Approve payment' }));
+    expect(openTab).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      expect(assign).toHaveBeenCalledWith(expect.stringContaining('/mock-paypal?kind=payment'));
+      expect(go).toHaveBeenCalledWith(expect.stringContaining('/mock-paypal?kind=invoice'));
     });
-    expect(await screen.findByText('Opening PayPal')).toBeInTheDocument();
+    expect(close).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+    expect(await screen.findByText('PayPal invoice opened in a new tab')).toBeInTheDocument();
+
+    // Not paid until PayPal says so: the desk shows it waiting, with the invoice to hand.
+    const paying = await screen.findByRole('region', { name: 'Being paid' });
+    expect(within(paying).getByText('Waiting for PayPal confirmation')).toBeInTheDocument();
+    expect(
+      await within(paying).findByRole('link', { name: /Open the PayPal invoice/ }),
+    ).toHaveAttribute('target', '_blank');
+    expect(screen.queryByText('Payment confirmed by PayPal')).not.toBeInTheDocument();
+
+    // PayPal's verified webhook arrives.
+    const paid = currentWorld()
+      .confirmPayment('deal_juniper')
+      .find((e) => e.type === 'deal.updated');
+    act(() => {
+      FakeEventSource.latest!.emit(paid!);
+    });
+    expect(await screen.findByText('Payment confirmed by PayPal')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Being paid' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('closes the waiting tab when the approval is not recorded', async () => {
+    negotiated();
+    const go = vi.fn();
+    const close = vi.fn();
+    vi.spyOn(browser, 'openTab').mockReturnValue({ go, close });
+    server.use(
+      http.post(endpoints.decideApproval.path, () =>
+        HttpResponse.json(
+          { error: { code: 'INTERNAL', message: 'Not recorded.', retryable: true } },
+          { status: 500 },
+        ),
+      ),
+    );
+    renderDesk();
+    const card = await screen.findByRole('region', { name: /Needs your approval/ });
+    await userEvent.click(within(card).getByRole('button', { name: 'Approve payment' }));
+    expect(await within(card).findByText('Your decision was not recorded')).toBeInTheDocument();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it('pays from a saved method without opening PayPal', async () => {
+    negotiated();
+    const desk = currentDesk();
+    desk.confirmVault('biz_juniper', desk.setupVault('biz_juniper', 'http://x').setupTokenId);
+    const openTab = vi.spyOn(browser, 'openTab');
+    renderDesk();
+    const card = await screen.findByRole('region', { name: /Needs your approval/ });
+    // The saved method is known before deciding, so no PayPal tab is opened at all.
+    expect(await screen.findByText('juniper@business.example.com')).toBeInTheDocument();
+    await userEvent.click(within(card).getByRole('button', { name: 'Approve payment' }));
+    expect(
+      await screen.findByText('Approved. Paying from your saved PayPal method'),
+    ).toBeInTheDocument();
+    expect(openTab).not.toHaveBeenCalled();
+    // PayPal's webhook confirms the agent's payment (its event is covered in client.spec.ts).
+    expect(currentWorld().dealDetail('deal_juniper')?.state).toBe('PAID');
+  });
+
+  it('points to the invoice on the desk when the browser blocks the new tab', async () => {
+    negotiated();
+    vi.spyOn(browser, 'openTab').mockReturnValue(null);
+    renderDesk();
+    const card = await screen.findByRole('region', { name: /Needs your approval/ });
+    await userEvent.click(within(card).getByRole('button', { name: 'Approve payment' }));
+    expect(await screen.findByText('Pay the invoice on PayPal')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('link', { name: /Open the PayPal invoice/ }),
+    ).toBeInTheDocument();
   });
 
   it('starts saving a PayPal method on PayPal, and says it is waiting until PayPal confirms', async () => {
