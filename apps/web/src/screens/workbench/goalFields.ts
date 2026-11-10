@@ -32,10 +32,6 @@ export function validateOpening(raw: string, maxDiscountPct: string): string | n
 }
 
 /** "6200.00" → "6200", so the editor opens with what a person would type. */
-export function plainMoney(value: string): string {
-  return value.replace(/\.00$/, '');
-}
-
 export function displayMoney(value: string): string {
   return formatMoney(value, { cents: 'auto' });
 }

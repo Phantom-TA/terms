@@ -7,6 +7,8 @@ import { workbenchKeys } from '../workbench/queries';
 export type OfferStatus = 'OPEN' | 'CLOSED' | 'ALL';
 
 export const payablesKeys = {
+  /** Every client-offers query, for invalidating them all. */
+  all: ['client-offers'] as const,
   offers: (status: OfferStatus) => ['client-offers', status] as const,
   vault: ['client-vault'] as const,
 };
@@ -51,7 +53,7 @@ export function useVaultConfirm() {
 export function usePayablesLive(onPaid?: (deal: DealSummary) => void): void {
   const queryClient = useQueryClient();
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ['client-offers'] });
+    void queryClient.invalidateQueries({ queryKey: payablesKeys.all });
   };
   useServerEvent('deal.updated', (event) => {
     refresh();

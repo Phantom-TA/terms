@@ -197,7 +197,17 @@ export function formatAnnualRate(rate: string): string {
 
 /** "1.20" → "1.2%", "1.25" → "1.25%", "1.00" → "1%". */
 export function formatPercent(value: string): string {
-  return `${value.replace(/\.?0+$/, '')}%`;
+  return `${plainPercent(value)}%`;
+}
+
+/** A percentage as an input shows it: "1.20" → "1.2". */
+export function plainPercent(value: string): string {
+  return value.replace(/\.?0+$/, '');
+}
+
+/** An amount as an input shows it: "6200.00" → "6200". */
+export function plainMoney(value: string): string {
+  return value.replace(/\.00$/, '');
 }
 
 /** The sentence announcing that the goal was met, from the server's figures. */

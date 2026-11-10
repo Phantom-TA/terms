@@ -6,7 +6,7 @@ Evidence commands, from `apps/web`: `pnpm gate` (typecheck, lint, format, Vitest
 
 **Everything below was tested against mocks generated from the shared schemas (`VITE_USE_MOCKS=true`). Nothing has been run against the real API yet.** A's routes are on `develop` now, but its demo seed creates real PayPal sandbox invoices, so a real run needs the sandbox app's credentials in the root `.env`. Status is PASS for the UI behaviour in mock mode and says so where the real API could change the result.
 
-**Last full run (Phase 7, 2026-11-11):** 518 unit and component tests passed; 116 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
+**Last full run (after code review, 2026-11-11):** 525 unit and component tests passed; 116 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
 
 ## Phase 1: design system and shell
 
@@ -162,7 +162,18 @@ Spike S6 first. AG Studio 3.1.0 runs a custom agent through `clientToolRunner`. 
 | `docs/user-guide.md`         | Done    | Each screen, as the owner, a client with an agent and a client without one; checked against the app                                                                              |
 | `docs/judging-map.md`        | Done    | Each criterion, where to see it and how to check it                                                                                                                              |
 | `docs/devpost.md`            | Done    | Devpost text, Built with, AI disclosure                                                                                                                                          |
+| `docs/demo-video.md`         | Done    | Shot list: clicks, what must be on screen, narration and what needs A                                                                                                            |
 | Sandbox screenshots          | Not yet | Replace the demo-mode screenshots after the joint run with A                                                                                                                     |
+
+**Code review (2026-11-11).** A review of `apps/web/src` found ten issues, all fixed with tests that fail on the old code:
+
+- Cash Studio could drop the owner's question when trimming a long conversation, ending the run without a word.
+- A goal retry left the form open after Start over.
+- A row looked saved while a second edit was still in flight.
+- A client with a saved method could see a PayPal tab flash open while the method was loading.
+- A reordered policy list counted as a change.
+- Every connection-status change re-rendered every screen listening for events.
+- Smaller: an unused grid module, duplicated formatters and transcript labels, and a query key written in three places.
 
 Writing the guide found one gap: the API's `defaultedFields` (goal fields the parser took from the owner's policy) was not shown. The Goal bar now names them before the owner confirms (`GoalBar.test.tsx`).
 

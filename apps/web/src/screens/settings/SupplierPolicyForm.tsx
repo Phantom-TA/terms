@@ -9,17 +9,16 @@ import {
   Tone,
 } from '@terms/shared';
 import { type SyntheticEvent, useState } from 'react';
-import { formatDateTime } from '../../lib/display';
+import { formatDateTime, plainMoney, plainPercent } from '../../lib/display';
 import { TONE_LABEL } from '../../lib/labels';
 import { Button } from '../../ui/Button';
 import { Field, Input, Select } from '../../ui/Field';
 import { useToast } from '../../ui/Toast';
 import {
+  draftChanged,
   type FieldErrors,
   FormActions,
   issuesToErrors,
-  plainMoney,
-  plainPercent,
   readMoney,
   readPercent,
   SaveError,
@@ -92,7 +91,7 @@ export function SupplierPolicyForm({ policy, clients }: SupplierPolicyFormProps)
   const [errors, setErrors] = useState<FieldErrors<Key>>({});
   const save = useSaveSupplierPolicy();
   const { toast } = useToast();
-  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(policy));
+  const dirty = draftChanged(draft, draftOf(policy));
   const maxBps = normalizePercentInput(draft.maxDiscount);
   const defaultOpening = maxBps
     ? plainPercent(bpsToPercent(defaultOpeningBps(percentToBps(maxBps))))

@@ -1,5 +1,5 @@
 import { type Goal, type Plan } from '@terms/shared';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toApiError } from '../../api/errors';
 import { useToast } from '../../ui/Toast';
 import { isPolicyBlock, useUpdatePlanItem } from './queries';
@@ -30,13 +30,19 @@ export function useRowEditing(goal: Goal | null, plan: Plan | null, today: strin
     };
   }, [goal, plan, today]);
 
+  // The latest limits and plan cost, for an edit that waited in the queue behind another.
+  const latest = useRef(context);
+  useEffect(() => {
+    latest.current = context;
+  }, [context]);
+
+  // A row can have several edits in flight; it stays marked as saving until the last one is done.
+  const inFlight = useRef(new Map<string, number>());
   const setBusy = useCallback((rowId: string, busy: boolean) => {
-    setSaving((current) => {
-      const next = new Set(current);
-      if (busy) next.add(rowId);
-      else next.delete(rowId);
-      return next;
-    });
+    const count = (inFlight.current.get(rowId) ?? 0) + (busy ? 1 : -1);
+    if (count > 0) inFlight.current.set(rowId, count);
+    else inFlight.current.delete(rowId);
+    setSaving(new Set(inFlight.current.keys()));
   }, []);
 
   const onEdit = useCallback(
@@ -48,12 +54,20 @@ export function useRowEditing(goal: Goal | null, plan: Plan | null, today: strin
         toast({ tone: 'error', title, description: result.message });
         return;
       }
-      const variables = { planId: plan.id, itemId: row.item.id, patch: result.patch };
+      const planId = plan.id;
+      const itemId = row.item.id;
       setBusy(row.id, true);
 
       const send = async (): Promise<void> => {
         try {
-          const { policyChecks } = await mutateAsync(variables);
+          // Checked again against the plan as it is now: an edit sent before this one may have
+          // changed the plan's cost. The server checks it too.
+          const now = checkRowEdit(row, field, raw, latest.current ?? context);
+          if (!now.ok) {
+            toast({ tone: 'error', title, description: now.message });
+            return;
+          }
+          const { policyChecks } = await mutateAsync({ planId, itemId, patch: now.patch });
           toast({
             tone: 'success',
             title: `${row.clientName} updated`,

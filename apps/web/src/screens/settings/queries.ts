@@ -7,6 +7,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { workbenchKeys } from '../workbench/queries';
+import { payablesKeys } from '../payables/queries';
 
 export const clientPolicyKey = ['client-policy'] as const;
 
@@ -37,7 +38,7 @@ export function useSaveClientPolicy() {
       (await api('putClientPolicy', { body })).policy,
     onSuccess: async (policy) => {
       queryClient.setQueryData<ClientPolicyView>(clientPolicyKey, policy);
-      await queryClient.invalidateQueries({ queryKey: ['client-offers'] });
+      await queryClient.invalidateQueries({ queryKey: payablesKeys.all });
     },
   });
 }

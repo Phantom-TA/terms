@@ -1,37 +1,35 @@
 import { type DealDetail, type NegotiationMessage } from '@terms/shared';
 import { type CustomCellRendererProps } from 'ag-grid-react';
 import { Link } from 'react-router-dom';
-import { formatDateTime, formatPercent } from '../../lib/display';
+import { formatAnnualRate, formatDateTime, formatPercent } from '../../lib/display';
 import { ErrorState } from '../../ui/ErrorState';
 import { closingReason } from '../negotiation/closingReason';
+import { isSupplierMessage } from '../negotiation/MessageCard';
 import { Money, PolicyBadges, ProtectedTag } from '../../ui/finance';
 import { Skeleton } from '../../ui/Skeleton';
 import { useDeal } from './queries';
 import { type AnyRow, isInvoiceRow, type WorkbenchRow } from './rows';
 
-const PARTY: Readonly<Record<string, string>> = {
-  supplier: 'Your agent',
-  client: 'Client agent',
-};
-
-function partyName(ref: string): string {
-  const side = ref.split(':')[0] ?? '';
-  return PARTY[side] ?? ref;
+/** Who said it, from the owner's side. The side comes from the sender, as in the Negotiation Room. */
+function partyName(message: NegotiationMessage, clientName: string): string {
+  if (message.actor === 'OWNER') return 'You';
+  if (message.actor === 'CLIENT_HUMAN') return `${clientName} (a person)`;
+  return isSupplierMessage(message) ? 'Your agent' : `${clientName}’s agent`;
 }
 
-function MessageLine({ message }: { message: NegotiationMessage }) {
+function MessageLine({ message, clientName }: { message: NegotiationMessage; clientName: string }) {
   const terms = message.terms;
   return (
     <li className="space-y-1 border-l-2 border-rule pl-3">
       <p className="text-base">
-        <span className="font-medium">{partyName(message.from)}</span>{' '}
+        <span className="font-medium">{partyName(message, clientName)}</span>{' '}
         <span className="text-ink-2">
           {message.type.toLowerCase()}
           {terms ? (
             <>
               {' '}
               <Money value={terms.amountEarly} /> at {formatPercent(terms.discountPct)}
-              {message.impliedAnnualRate ? ` (${message.impliedAnnualRate}% a year)` : ''}
+              {message.impliedAnnualRate ? ` (${formatAnnualRate(message.impliedAnnualRate)})` : ''}
             </>
           ) : null}
         </span>
@@ -77,10 +75,11 @@ function Transcript({ row }: { row: WorkbenchRow }) {
       />
     );
   }
-  return <TranscriptBody deal={deal.data} />;
+  return <TranscriptBody deal={deal.data} clientName={row.clientName} />;
 }
 
-function TranscriptBody({ deal }: { deal: DealDetail }) {
+function TranscriptBody({ deal, clientName }: { deal: DealDetail; clientName: string }) {
+  const closed = closingReason(deal);
   return (
     <div className="space-y-3">
       {deal.messages.length === 0 ? (
@@ -90,13 +89,11 @@ function TranscriptBody({ deal }: { deal: DealDetail }) {
       ) : (
         <ul aria-label="Negotiation transcript" className="space-y-2">
           {deal.messages.map((message) => (
-            <MessageLine key={message.id} message={message} />
+            <MessageLine key={message.id} message={message} clientName={clientName} />
           ))}
         </ul>
       )}
-      {closingReason(deal) ? (
-        <p className="text-sm text-ink-2">Closed: {closingReason(deal)}</p>
-      ) : null}
+      {closed ? <p className="text-sm text-ink-2">Closed: {closed}</p> : null}
       <ol aria-label="Deal history" className="space-y-0.5 text-xs text-ink-3">
         {deal.history.map((step) => (
           <li key={`${step.to}-${step.at}`}>

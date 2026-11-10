@@ -81,9 +81,26 @@ export function toStudioMessages(messages: readonly AgAiMessage[]): StudioMessag
         break;
     }
   }
+  return withinLimit(out);
+}
+
+/**
+ * The newest messages within the contract's limit, never splitting a widget call from its result.
+ * Normally the window starts at a user message. If the owner's last question is older than the
+ * window (a long run of widget calls), the question is kept and followed by the newest messages,
+ * starting at an assistant message, so the server always knows what was asked.
+ */
+function withinLimit(out: StudioMessage[]): StudioMessage[] {
   let start = Math.max(0, out.length - STUDIO_MAX_MESSAGES);
   while (start < out.length && out[start]?.role !== 'user') start += 1;
-  return out.slice(start);
+  if (start < out.length) return out.slice(start);
+  const lastUser = out.findLastIndex((m) => m.role === 'user');
+  const question = out[lastUser];
+  if (!question) return [];
+  const rest = out.slice(lastUser + 1);
+  let from = Math.max(0, rest.length - (STUDIO_MAX_MESSAGES - 1));
+  while (from < rest.length && rest[from]?.role !== 'assistant') from += 1;
+  return [question, ...rest.slice(from)];
 }
 
 /**

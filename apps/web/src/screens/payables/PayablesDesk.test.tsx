@@ -178,6 +178,21 @@ describe('Payables Desk', () => {
     expect(go).not.toHaveBeenCalled();
   });
 
+  it('waits to know about a saved method before a payment can be approved', async () => {
+    negotiated();
+    server.use(
+      http.get(endpoints.getClientVault.path, async () => {
+        await delay('infinite');
+        return HttpResponse.json({});
+      }),
+    );
+    renderDesk();
+    const card = await screen.findByRole('region', { name: /Needs your approval/ });
+    // Approving would open a PayPal tab only if there is no saved method, which isn't known yet.
+    expect(within(card).getByRole('button', { name: 'Approve payment' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'Reject' })).toBeEnabled();
+  });
+
   it('pays from a saved method without opening PayPal', async () => {
     negotiated();
     const desk = currentDesk();

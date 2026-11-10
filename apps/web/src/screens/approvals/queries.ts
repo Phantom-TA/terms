@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useServerEvent } from '../../api/StreamProvider';
 import { negotiationKeys } from '../negotiation/queries';
 import { workbenchKeys } from '../workbench/queries';
+import { payablesKeys } from '../payables/queries';
 
 export const approvalKeys = { all: ['approvals'] as const };
 
@@ -44,7 +45,7 @@ export function useDecideApproval() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: approvalKeys.all }),
         queryClient.invalidateQueries({ queryKey: negotiationKeys.deals }),
-        queryClient.invalidateQueries({ queryKey: ['client-offers'] }),
+        queryClient.invalidateQueries({ queryKey: payablesKeys.all }),
         queryClient.invalidateQueries({ queryKey: workbenchKeys.goal }),
         queryClient.invalidateQueries({ queryKey: workbenchKeys.invoices }),
         queryClient.invalidateQueries({ queryKey: workbenchKeys.runway }),
