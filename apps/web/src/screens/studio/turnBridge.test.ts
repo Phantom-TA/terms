@@ -100,6 +100,33 @@ describe('the conversation sent to the server', () => {
     expect(messages.at(-1)).toEqual({ role: 'assistant', content: 'ok', toolCalls: [] });
   });
 
+  it('keeps the owner’s question when a long run of widget calls pushes it out of the window', () => {
+    const long: AgAiMessage[] = [user('Cap discounts at 1%?')];
+    for (let i = 0; i < STUDIO_MAX_MESSAGES; i += 1) {
+      long.push(
+        {
+          id: `a${i.toString()}`,
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            { id: `c${i.toString()}`, type: 'function', function: { name: 'x', arguments: '{}' } },
+          ],
+        },
+        { id: `t${i.toString()}`, role: 'tool', toolCallId: `c${i.toString()}`, content: '{}' },
+      );
+    }
+    const messages = toStudioMessages(long);
+    expect(messages.length).toBeLessThanOrEqual(STUDIO_MAX_MESSAGES);
+    expect(messages[0]).toEqual({ role: 'user', content: 'Cap discounts at 1%?' });
+    // After the question, it starts at a widget call, never at a result without its call.
+    expect(messages[1]?.role).toBe('assistant');
+    expect(messages.at(-1)).toMatchObject({
+      role: 'tool',
+      toolCallId: `c${(STUDIO_MAX_MESSAGES - 1).toString()}`,
+    });
+    expect(() => StudioTurnRequest.parse({ messages })).not.toThrow();
+  });
+
   it('leaves out empty messages and arguments that are not an object', () => {
     expect(
       toStudioMessages([
