@@ -8,6 +8,7 @@ const ALL_TOOLS = [
   'configure_line_chart',
   'configure_column_chart',
   'configure_value',
+  'configure_cost_curve',
 ].map((name) => ({ name, description: name, inputSchema: { type: 'object' } }));
 
 function turn(messages: StudioMessage[], tools = ALL_TOOLS) {
@@ -55,6 +56,11 @@ describe('the mock cash strategist', () => {
   it('charts what clients owe, largest first', () => {
     const answer = turn([{ role: 'user', content: 'Who owes me most?' }]);
     expect(answer.message.toolCalls[0]?.input).toMatchObject({ type: 'column-chart-grouped' });
+  });
+
+  it('draws the plan’s cost-versus-cash curve with the custom widget', () => {
+    const answer = turn([{ role: 'user', content: 'What does early cash cost me?' }]);
+    expect(answer.message.toolCalls[0]?.input).toMatchObject({ type: 'cost-cash-curve' });
   });
 
   it('calls no tool the browser did not offer', () => {

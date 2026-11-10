@@ -103,6 +103,41 @@ function columnChart(widgetId: string): Step[] {
   ];
 }
 
+function costCurve(widgetId: string): Step[] {
+  return [
+    {
+      say: 'Here is what each extra dollar of early cash costs you, cheapest first.',
+      calls: [
+        {
+          name: 'add_widget',
+          input: { widgetId, type: 'cost-cash-curve', xTrack: 0, yTrack: 0, xSpan: 12, ySpan: 8 },
+        },
+      ],
+    },
+    {
+      say: '',
+      calls: [
+        {
+          name: 'configure_cost_curve',
+          input: {
+            op: 'patch',
+            widgetId,
+            value: {
+              type: 'cost-cash-curve',
+              format: { title: { enabled: true, text: 'What early cash costs' } },
+              dataMapping: {
+                label: [{ id: 'invoices.client' }],
+                cost: [{ id: 'invoices.planCost', aggregation: 'sum' }],
+                cash: [{ id: 'invoices.planCash', aggregation: 'sum' }],
+              },
+            },
+          },
+        },
+      ],
+    },
+  ];
+}
+
 function script(question: string, run: number): { steps: Step[]; closing: string } {
   const widgetId = `strategist-${run.toString()}`;
   const q = question.toLowerCase();
@@ -120,6 +155,8 @@ function script(question: string, run: number): { steps: Step[]; closing: string
         'In mock mode I can’t run the what-if itself; the server does that. The chart shows your runway with today’s plan, to compare against.',
     };
   }
+  if (/\bcost\b|curve|cheapest/.test(q))
+    return { steps: costCurve(widgetId), closing: 'Each point adds one plan row.' };
   if (q.includes('owe')) return { steps: columnChart(widgetId), closing: 'Largest first.' };
   if (/runway|before and after|cash/.test(q))
     return {
