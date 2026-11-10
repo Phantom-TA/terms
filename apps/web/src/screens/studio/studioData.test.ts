@@ -2,7 +2,7 @@ import { ListInvoicesResponse } from '@terms/shared';
 import { describe, expect, it } from 'vitest';
 import { currentWorld } from '../../mocks/handlers';
 import { installMockApi } from '../../test/msw';
-import { invoiceRecords, runwayRecords, studioSources } from './studioData';
+import { invoiceRecords, runwayRecords, scenarioRecords, studioSources } from './studioData';
 
 installMockApi();
 
@@ -60,11 +60,23 @@ describe('the owner’s data as Studio tables', () => {
     expect(sources[1]).toMatchObject({ data: [] });
   });
 
+  it('fills the what-if table with the server’s scenario, each day labelled', () => {
+    const runway = currentWorld().runway();
+    const scenario = { label: 'Discounts capped at 1.00%', points: runway.points.slice(0, 2) };
+    const table = studioSources(invoices(), runway, scenario).sources[2]!;
+    expect(table).toMatchObject({ data: scenarioRecords(scenario) });
+    expect(scenarioRecords(scenario)[0]).toEqual({
+      ...runwayRecords(runway)[0],
+      label: 'Discounts capped at 1.00%',
+    });
+  });
+
   it('starts the what-if table empty, with the runway’s fields and a label', () => {
-    const scenario = studioSources(invoices(), currentWorld().runway()).sources[2]!;
-    const runway = studioSources(invoices(), currentWorld().runway()).sources[1]!;
+    const runway = currentWorld().runway();
+    const [, runwayTable, scenario] = studioSources(invoices(), runway).sources;
     expect(scenario).toMatchObject({ id: 'scenario', data: [] });
-    const ids = (s: typeof scenario) => ('fields' in s ? (s.fields ?? []).map((f) => f.id) : []);
-    expect(ids(scenario)).toEqual([...ids(runway), 'label']);
+    const ids = (s: typeof scenario) =>
+      s && 'fields' in s ? (s.fields ?? []).map((f) => f.id) : [];
+    expect(ids(scenario)).toEqual([...ids(runwayTable), 'label']);
   });
 });

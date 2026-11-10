@@ -7,7 +7,8 @@ import {
   clientToolRunner,
   createAiHarness,
 } from 'ag-studio';
-import { runTurn } from './turnBridge';
+import { type StudioScenario } from '@terms/shared';
+import { makeRunTurn } from './turnBridge';
 
 /** The widget types the strategist may configure, by Studio's catalogue id, and its tool for each. */
 export const CONFIGURABLE_WIDGETS = {
@@ -57,23 +58,27 @@ export const promptStarters: AgAiPromptStarter[] = [
 /**
  * The cash strategist: one agent, whose model runs on the server behind `POST /api/studio/turn`.
  * Studio runs the loop and the widget tools in the page; the server holds the prompt and the
- * read-only cash tools.
+ * read-only cash tools. A what-if runway the server sends goes to `onScenario`.
  */
-export const strategist: AgAiHarnessSetup = ({ api }) =>
-  // AgAiHarnessSetupParams is typed with the UI-less core API, but in the browser Studio passes the
-  // full AgStudioApi (AgStudioCommon narrows it), which is what createAiHarness needs.
-  createAiHarness(api as AgStudioApi, ({ tools: { studio } }) => ({
-    agents: [
-      clientToolRunner({
-        id: 'cash-strategist',
-        name: 'Cash strategist',
-        description: 'Answers what-if questions about cash and builds widgets to show the answer.',
-        schema: (s) => s.undefined(),
-        maxTurns: 12,
-        tools: () => strategistTools(studio),
-        run: runTurn,
-      }),
-    ],
-    primary: 'cash-strategist',
-    promptStarters,
-  }));
+export function makeStrategist(onScenario: (scenario: StudioScenario) => void): AgAiHarnessSetup {
+  const run = makeRunTurn(onScenario);
+  return ({ api }) =>
+    // AgAiHarnessSetupParams is typed with the UI-less core API, but in the browser Studio passes
+    // the full AgStudioApi (AgStudioCommon narrows it), which is what createAiHarness needs.
+    createAiHarness(api as AgStudioApi, ({ tools: { studio } }) => ({
+      agents: [
+        clientToolRunner({
+          id: 'cash-strategist',
+          name: 'Cash strategist',
+          description:
+            'Answers what-if questions about cash and builds widgets to show the answer.',
+          schema: (s) => s.undefined(),
+          maxTurns: 12,
+          tools: () => strategistTools(studio),
+          run,
+        }),
+      ],
+      primary: 'cash-strategist',
+      promptStarters,
+    }));
+}

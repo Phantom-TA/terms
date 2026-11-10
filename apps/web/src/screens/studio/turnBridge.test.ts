@@ -6,19 +6,21 @@ import {
   type AgAiRunInput,
 } from 'ag-studio';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/errors';
 import { server } from '../../mocks/server';
 import { installMockApi } from '../../test/msw';
 import {
   responseEvents,
-  runTurn,
+  makeRunTurn,
   toClientTools,
   toStudioMessages,
   turnErrorMessage,
 } from './turnBridge';
 
 installMockApi();
+
+const runTurn = makeRunTurn(() => undefined);
 
 const user = (content: string, id = 'u'): AgAiMessage => ({ id, role: 'user', content });
 
@@ -200,6 +202,58 @@ describe('one round with the server', () => {
     expect(events.find((e) => e.type === 'TEXT_MESSAGE_CONTENT')).toMatchObject({
       delta: 'Hello.',
     });
+  });
+
+  it('hands the server’s what-if runway over before Studio runs the widget calls', async () => {
+    const scenario = {
+      label: 'Discounts capped at 1.00%',
+      points: [
+        {
+          date: '2026-11-11',
+          before: '100.00',
+          afterCommitted: '200.00',
+          afterPlanned: '250.00',
+          afterBestEffort: '200.00',
+        },
+      ],
+    };
+    server.use(
+      http.post(endpoints.studioTurn.path, () =>
+        HttpResponse.json({
+          message: {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'c1', name: 'add_widget', input: {} }],
+          },
+          serverToolCalls: [],
+          scenario,
+          done: false,
+        }),
+      ),
+    );
+    const order: string[] = [];
+    const onScenario = vi.fn(() => order.push('scenario'));
+    for await (const event of makeRunTurn(onScenario)(input([user('Cap at 1%?')]), context())) {
+      order.push(event.type);
+    }
+    expect(onScenario).toHaveBeenCalledWith(scenario);
+    expect(order[0]).toBe('scenario');
+  });
+
+  it('keeps the last what-if when a turn has none', async () => {
+    server.use(
+      http.post(endpoints.studioTurn.path, () =>
+        HttpResponse.json({
+          message: { role: 'assistant', content: 'Hi.', toolCalls: [] },
+          serverToolCalls: [],
+          scenario: null,
+          done: true,
+        }),
+      ),
+    );
+    const onScenario = vi.fn();
+    await collect(makeRunTurn(onScenario)(input([user('Hi')]), context()));
+    expect(onScenario).not.toHaveBeenCalled();
   });
 
   it('says plainly when the strategist is not available', async () => {

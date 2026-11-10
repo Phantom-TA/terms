@@ -1,4 +1,4 @@
-import { type ListInvoicesResponse, type RunwayResponse } from '@terms/shared';
+import { type ListInvoicesResponse, type RunwayResponse, type StudioScenario } from '@terms/shared';
 import { type AgDataSourcesDefinition, type AgFieldDefinition } from 'ag-studio';
 import { type TermsRegistry } from './widgets';
 
@@ -47,13 +47,18 @@ export function invoiceRecords(invoices: ListInvoicesResponse): InvoiceRecord[] 
   }));
 }
 
-export function runwayRecords(runway: RunwayResponse): RunwayRecord[] {
+export function runwayRecords(runway: Pick<RunwayResponse, 'points'>): RunwayRecord[] {
   return runway.points.map((point) => ({
     date: point.date,
     before: amount(point.before),
     afterCommitted: amount(point.afterCommitted),
     afterPlanned: amount(point.afterPlanned),
   }));
+}
+
+/** The server's what-if runway, each day labelled with what it assumes. */
+export function scenarioRecords(scenario: StudioScenario): (RunwayRecord & { label: string })[] {
+  return runwayRecords(scenario).map((record) => ({ ...record, label: scenario.label }));
 }
 
 const dollars = { format: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }) };
@@ -83,6 +88,7 @@ const RUNWAY_FIELDS: AgFieldDefinition<TermsRegistry>[] = [
 export function studioSources(
   invoices: ListInvoicesResponse,
   runway: RunwayResponse | null,
+  scenario: StudioScenario | null = null,
 ): AgDataSourcesDefinition<TermsRegistry> {
   return {
     sources: [
@@ -109,7 +115,7 @@ export function studioSources(
           'The runway under the last what-if the server ran, such as a cap on discounts. Empty until one runs.',
         primaryKeyField: 'date',
         fields: [...RUNWAY_FIELDS, { id: 'label', name: 'What-if', format: 'textFormat' }],
-        data: [],
+        data: scenario ? scenarioRecords(scenario) : [],
       },
     ],
   };

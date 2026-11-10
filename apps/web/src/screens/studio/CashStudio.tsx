@@ -1,12 +1,13 @@
 import { type AgPageLayoutState, type AgPanelConfig, AgStudioAiModule } from 'ag-studio';
 import { AgStudio, AgStudioProvider } from 'ag-studio-react';
-import { useMemo } from 'react';
+import { type StudioScenario } from '@terms/shared';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { useInvoices, useRunway } from '../workbench/queries';
-import { strategist } from './strategist';
+import { makeStrategist } from './strategist';
 import { studioSources } from './studioData';
 import { termsStudioTheme } from './theme';
 import { type TermsRegistry, termsWidgets } from './widgets';
@@ -25,10 +26,13 @@ const layout: Partial<AgPageLayoutState> = { columns: 12, rowHeight: 40, minWidt
 export function Component() {
   const invoices = useInvoices();
   const runway = useRunway();
-  // Built once per change of the server's data: Studio treats a new object as new sources.
+  // The last what-if the server ran in this visit. A turn without one keeps it.
+  const [scenario, setScenario] = useState<StudioScenario | null>(null);
+  const ai = useMemo(() => makeStrategist(setScenario), []);
+  // Rebuilt only when the server's data changes: Studio takes the new rows for each table.
   const data = useMemo(
-    () => (invoices.data ? studioSources(invoices.data, runway.data ?? null) : null),
-    [invoices.data, runway.data],
+    () => (invoices.data ? studioSources(invoices.data, runway.data ?? null, scenario) : null),
+    [invoices.data, runway.data, scenario],
   );
 
   let body;
@@ -65,7 +69,7 @@ export function Component() {
             mode="edit"
             theme={termsStudioTheme}
             widgets={termsWidgets}
-            ai={strategist}
+            ai={ai}
             panels={panels}
             layout={layout}
             style={{ height: '100%', width: '100%' }}

@@ -3,6 +3,7 @@ import {
   STUDIO_MAX_MESSAGES,
   type StudioClientToolDefinition,
   type StudioMessage,
+  type StudioScenario,
   type StudioTurnResponse,
 } from '@terms/shared';
 import {
@@ -163,24 +164,31 @@ export function turnErrorMessage(error: unknown): string {
   return 'The cash strategist could not answer. Try again.';
 }
 
-/** One round of the cash strategist: the conversation and its widget tools to the server, events back. */
-export const runTurn: AgAiAgentRun = async function* (input, ctx) {
-  const messages = toStudioMessages(input.messages);
-  if (messages.length === 0) return;
-  try {
-    const response = await api('studioTurn', {
-      body: { messages, clientTools: toClientTools(input.tools) },
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-    });
-    yield* responseEvents(response);
-  } catch (error) {
-    // A run the owner stopped ends quietly; Studio already knows it stopped. The signal is checked
-    // rather than the error, whose type depends on where fetch runs.
-    if (ctx.signal?.aborted) return;
-    yield {
-      type: 'RUN_ERROR',
-      message: turnErrorMessage(error),
-      ...(error instanceof ApiError && error.code ? { code: error.code } : {}),
-    };
-  }
-};
+/**
+ * One round of the cash strategist: the conversation and its widget tools to the server, events
+ * back. A what-if runway in the answer goes to `onScenario` before Studio runs the round's widget
+ * calls, so a widget configured from it has its rows. A turn without one leaves the last in place.
+ */
+export function makeRunTurn(onScenario: (scenario: StudioScenario) => void): AgAiAgentRun {
+  return async function* (input, ctx) {
+    const messages = toStudioMessages(input.messages);
+    if (messages.length === 0) return;
+    try {
+      const response = await api('studioTurn', {
+        body: { messages, clientTools: toClientTools(input.tools) },
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      });
+      if (response.scenario) onScenario(response.scenario);
+      yield* responseEvents(response);
+    } catch (error) {
+      // A run the owner stopped ends quietly; Studio already knows it stopped. The signal is
+      // checked rather than the error, whose type depends on where fetch runs.
+      if (ctx.signal?.aborted) return;
+      yield {
+        type: 'RUN_ERROR',
+        message: turnErrorMessage(error),
+        ...(error instanceof ApiError && error.code ? { code: error.code } : {}),
+      };
+    }
+  };
+}
