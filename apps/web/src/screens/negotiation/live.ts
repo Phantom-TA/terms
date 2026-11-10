@@ -1,11 +1,20 @@
 import {
   type DealDetail,
+  type DealSummary,
   type ListAuditResponse,
   type ListDealsResponse,
   type ServerEventOf,
 } from '@terms/shared';
 
 /** Pure reducers that fold server events into the Negotiation Room's cached data. */
+
+/** An event can arrive after a newer fetch. The newer record wins. */
+export function isOlderDeal(
+  incoming: Pick<DealSummary, 'updatedAt'>,
+  current: Pick<DealSummary, 'updatedAt'>,
+): boolean {
+  return Date.parse(incoming.updatedAt) < Date.parse(current.updatedAt);
+}
 
 export function applyMessage(
   old: DealDetail | undefined,
@@ -21,7 +30,8 @@ export function applyDealToDetail(
   event: ServerEventOf<'deal.updated'>,
 ): DealDetail | undefined {
   const { deal } = event.data;
-  return old?.id === deal.id ? { ...old, ...deal } : old;
+  if (old?.id !== deal.id || isOlderDeal(deal, old)) return old;
+  return { ...old, ...deal };
 }
 
 export function applyDealToList(
@@ -33,7 +43,7 @@ export function applyDealToList(
   return {
     ...old,
     deals: old.deals.some((d) => d.id === deal.id)
-      ? old.deals.map((d) => (d.id === deal.id ? deal : d))
+      ? old.deals.map((d) => (d.id === deal.id && !isOlderDeal(deal, d) ? deal : d))
       : [...old.deals, deal],
   };
 }

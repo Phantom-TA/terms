@@ -62,6 +62,23 @@ describe('deal updates', () => {
     expect(next.messages).toBe(detail.messages);
   });
 
+  it('does not let a late event rewind the deal', () => {
+    const newer = {
+      ...detail,
+      state: 'AWAITING_PAYMENT' as const,
+      updatedAt: '2026-11-09T13:00:00Z',
+    };
+    const late: ServerEventOf<'deal.updated'> = {
+      id: 'late',
+      type: 'deal.updated',
+      at: AT,
+      data: { deal: { ...detail, state: 'SENT', updatedAt: '2026-11-09T12:00:00Z' } },
+    };
+    expect(applyDealToDetail(newer, late)).toBe(newer);
+    const list: ListDealsResponse = { planId: 'plan_1', deals: [newer] };
+    expect(applyDealToList(list, late)?.deals[0]?.state).toBe('AWAITING_PAYMENT');
+  });
+
   it('leaves another deal’s conversation alone', () => {
     const other = world.dealDetail('deal_juniper')!;
     expect(applyDealToDetail(other, dealEvent('AGREED'))).toBe(other);
