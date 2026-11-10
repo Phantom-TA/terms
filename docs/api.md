@@ -123,12 +123,30 @@ These are what the API actually does, beyond the schemas (all routes are live on
   - Agreed terms go onto the PayPal invoice; an agent pays from its saved method within its limit.
   - The stop rule withdraws open offers and sends `goal.met`.
 - **Runway:** answers 409 `CONFLICT` until a sync has stored a PayPal balance (`POST /api/sync`).
-- **Not yet available, answering 503 `NOT_CONFIGURED`:**
-  - `POST /api/studio/turn`, until the AI agent exists;
-  - offer-page `TEXT` replies, until the AI reply parser exists (D-022);
+- **Needs configuration, answering 503 `NOT_CONFIGURED`:**
+  - `POST /api/studio/turn` and offer-page `TEXT` replies, without an AI provider (`LLM_API_KEY`, or
+    `AI_MODE=replay`); with one they work, and a provider failure answers 502 `AI_ERROR`;
   - PayPal routes when PayPal credentials are missing.
-- **Goals:** `POST /api/goals` uses the rule-based parser when no AI is configured (D-017). The
-  response lists `defaultedFields` for the owner to confirm. A sentence without an amount answers 400.
+- **Goals:** `POST /api/goals` uses the AI goal parser when AI is configured and the rule-based parser
+  otherwise, or when the model fails or answers something implausible (D-017, D-025); the audit entry
+  records which (`details.parser`, `details.aiFailure`). The response lists `defaultedFields` for the
+  owner to confirm. A sentence without an amount answers 400.
+- **Plan explanations arrive later.** `POST /api/goals/:id/plan` and `PATCH` of a row return the rows at
+  once with `explanation: null` and the planner's `reason`; the AI explanations are written in the
+  background and announced with `plan.updated`, after which `GET /api/plans/:id` carries them. An edited
+  row's explanation is cleared and written afresh. Without AI it stays null; show `reason`.
+- **Written offer replies** (`kind: "TEXT"`) are read by the AI reply parser into one of the page's own
+  actions, and the response's `parsed` shows what was understood. A reply that is unclear, asks for
+  other terms or is only a promise to pay changes nothing: `offer` is unchanged, `message` says so, and
+  the link stays usable. The person's words and the reading are recorded (`OFFER_REPLY`).
+- **Cash Studio:** `POST /api/studio/turn` is stateless: send the whole conversation each time. Server
+  data tools run inside the turn and are listed in `serverToolCalls` (their earlier results are not in
+  the history, so the model looks again). Screen tools the browser declared come back in
+  `message.toolCalls`; run them and send `tool` messages back until `done` is true. A tool name that
+  shadows a server tool, a repeat name, oversized tool definitions, or a `tool` message that answers no
+  call the assistant made answer 400 `VALIDATION_FAILED`.
+- **Cash history labels:** after a sync, transactions PayPal's code left unclassified may have a kind and
+  label from the AI labeller; it never marks anything as a recurring flow.
 - **Offer links for clients without an agent** are recorded in the audit trail as
   `details.offerUrl` (an entry whose summary starts "Offer link"). A forged or expired link answers
   410 `TOKEN_INVALID`. The offer routes are rate-limited (429 with `Retry-After`).

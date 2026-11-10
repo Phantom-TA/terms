@@ -1,23 +1,17 @@
 /** The Connect screen, the PayPal import, the cash runway and the Cash Studio turn. */
-import {
-  type BalanceView,
-  endpoints,
-  isoDateInTimeZone,
-  NegotiationTerms,
-  toCents,
-} from '@terms/shared';
+import { type BalanceView, endpoints, isoDateInTimeZone } from '@terms/shared';
 import { type Router } from 'express';
-import { computeRunway, type RunwayDeal, type RunwayFlow } from '../../cash/runway.js';
-import { AppError, notFound } from '../../errors.js';
+import { AiRoleError } from '../../ai/runner.js';
+import { runwayFor } from '../../cash/runway-view.js';
+import { AppError } from '../../errors.js';
 import { type PayPalAccount } from '../../generated/prisma/client.js';
-import { dateToIso, money } from '../../mappers.js';
+import { money } from '../../mappers.js';
 import { type PayPalServices, type Services } from '../../services.js';
+import { studioData } from '../studio-data.js';
 import { rateLimit } from '../rate-limit.js';
 import { route } from '../route.js';
 
 const OPEN_INVOICE = ['SENT', 'UNPAID', 'PARTIALLY_PAID', 'SCHEDULED', 'PAYMENT_PENDING'] as const;
-const COMMITTED = ['AGREED', 'INVOICE_UPDATED', 'AWAITING_PAYMENT'] as const;
-const OPEN_DEAL = ['APPROVED', 'SENT', 'COUNTERED', 'NEEDS_OWNER'] as const;
 
 function balanceView(account: PayPalAccount | null): BalanceView | null {
   const cents = account?.balanceCents ?? null;
@@ -81,103 +75,46 @@ export function registerCashRoutes(router: Router, s: Services): void {
     return sync;
   });
 
-  route(router, s.sessions, endpoints.getRunway, async ({ query, session }) => {
-    const supplierId = session.businessId;
-    const account = await s.db.payPalAccount.findUnique({ where: { businessId: supplierId } });
-    const balanceCents = account?.balanceCents ?? null;
-    const balanceAsOf = account?.balanceAsOf ?? null;
-    if (account === null || balanceCents === null || balanceAsOf === null) {
-      throw new AppError(
-        'CONFLICT',
-        'Import from PayPal first: the runway starts from your PayPal balance',
-      );
-    }
-    const today = isoDateInTimeZone(s.now(), session.business.timeZone);
-    const current = await s.goals.current(supplierId);
-    let planId = query.planId ?? current?.planId ?? null;
-    if (query.planId !== undefined) {
-      const owned = await s.db.plan.findUnique({
-        where: { id: query.planId },
-        select: { goal: { select: { supplierId: true } } },
-      });
-      if (owned?.goal.supplierId !== supplierId) throw notFound('Plan');
-      planId = query.planId;
-    }
-    const plan = planId === null ? null : await s.plans.getView(planId, supplierId);
-    const goal =
-      planId === null
-        ? null
-        : await s.db.goal.findFirst({ where: { plans: { some: { id: planId } } } });
-
-    const recurring = await s.db.cashEvent.findMany({
-      where: {
-        businessId: supplierId,
-        source: 'CONFIRMED_RECURRING',
-        date: { gte: new Date(`${today}T00:00:00Z`) },
-      },
-    });
-    const flows: RunwayFlow[] = recurring.map((f) => ({
-      date: dateToIso(f.date),
-      amountCents: f.direction === 'IN' ? f.amountCents : -f.amountCents,
-      kind: f.kind,
-      label: f.label,
-    }));
-
-    const rows =
-      planId === null
-        ? []
-        : await s.db.deal.findMany({ where: { planId }, include: { invoice: true, client: true } });
-    const deals: RunwayDeal[] = [];
-    let confirmedSince = 0n;
-    for (const d of rows) {
-      const terms = NegotiationTerms.safeParse(d.agreedTerms ?? d.currentTerms);
-      const payBy = terms.success ? terms.data.payBy : today;
-      const label = `${d.client.name}, invoice ${d.invoice.number}`;
-      if (d.action === 'REMINDER') {
-        if (d.state !== 'PAID' && d.state !== 'WITHDRAWN' && d.state !== 'FAILED') {
-          deals.push({
-            date: dateToIso(d.invoice.dueDate),
-            amountCents: d.invoice.amountDueCents,
-            stage: 'REMINDER',
-            label,
-          });
-        }
-      } else if (d.state === 'PAID' || d.state === 'PARTIALLY_PAID') {
-        deals.push({ date: payBy, amountCents: d.committedCents, stage: 'PAID', label });
-        // PayPal's balance lags (spike S4): add what PayPal confirmed after its timestamp.
-        if (d.updatedAt > balanceAsOf) confirmedSince += d.committedCents;
-      } else if ((COMMITTED as readonly string[]).includes(d.state)) {
-        deals.push({ date: payBy, amountCents: d.committedCents, stage: 'COMMITTED', label });
-      } else if ((OPEN_DEAL as readonly string[]).includes(d.state)) {
-        deals.push({ date: payBy, amountCents: d.committedCents, stage: 'OPEN', label });
-      }
-    }
-
-    return computeRunway({
-      today,
-      horizonDays: query.horizonDays,
-      balanceCents,
-      balanceAsOf,
-      confirmedSinceCents: confirmedSince,
-      currency: account.balanceCurrency,
-      planId,
-      deadline: goal === null ? null : dateToIso(goal.deadline),
-      gapCents: goal?.amountCents ?? 0n,
-      committedCents: plan === null ? 0n : toCents(plan.summary.committed),
-      bestEffortCents: plan === null ? 0n : toCents(plan.summary.bestEffort),
-      flows,
-      deals,
-    });
-  });
+  route(router, s.sessions, endpoints.getRunway, ({ query, session }) =>
+    runwayFor(s, { id: session.businessId, timeZone: session.business.timeZone }, query),
+  );
 
   // The Cash Studio strategist runs on the LLM (CONTEXT.md, AI architecture). Rate-limited.
   router.use('/api/studio', rateLimit({ windowMs: 60_000, max: 20 }));
-  route(router, s.sessions, endpoints.studioTurn, () => {
-    throw new AppError(
-      'NOT_CONFIGURED',
-      s.config.llm.configured
-        ? 'The Cash Studio agent is not available yet'
-        : 'The Cash Studio agent needs an AI provider: set LLM_API_KEY',
-    );
+  route(router, s.sessions, endpoints.studioTurn, async ({ body, session }) => {
+    if (s.studio === null) {
+      throw new AppError(
+        'NOT_CONFIGURED',
+        'The Cash Studio agent needs an AI provider: set LLM_API_KEY',
+      );
+    }
+    const supplier = { id: session.businessId, timeZone: session.business.timeZone };
+    let response;
+    try {
+      response = await s.studio.turn(body, studioData(s, supplier), {
+        businessName: session.business.name,
+        today: isoDateInTimeZone(s.now(), supplier.timeZone),
+      });
+    } catch (err) {
+      if (!(err instanceof AiRoleError)) throw err;
+      throw new AppError(
+        'AI_ERROR',
+        'The Cash Studio agent could not answer just now; please try again',
+      );
+    }
+    await s.audit.write(s.db, {
+      actor: 'OWNER',
+      action: 'STUDIO_TURN',
+      subjectType: 'BUSINESS',
+      subjectId: supplier.id,
+      businessIds: [supplier.id],
+      summary: `Cash Studio turn: ${String(response.serverToolCalls.length)} data lookups, ${String(response.message.toolCalls.length)} screen actions`,
+      details: {
+        messages: body.messages.length,
+        dataTools: response.serverToolCalls.map((t) => t.name),
+        screenTools: response.message.toolCalls.map((t) => t.name),
+      },
+    });
+    return response;
   });
 }

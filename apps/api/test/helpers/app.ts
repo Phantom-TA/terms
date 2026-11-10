@@ -12,6 +12,18 @@ export interface TestAppOptions extends ServiceOverrides, AppOptions {
   noPayPal?: boolean;
 }
 
+/**
+ * Every app a test built. Approving a plan starts the deal runner in the background; a test that
+ * ends before it finishes would leave it writing while the next test resets the database, which
+ * deadlocks. `settleApps` (run after every test by test/setup.ts) waits for all of it.
+ */
+const built: Services[] = [];
+
+export async function settleApps(): Promise<void> {
+  const apps = built.splice(0);
+  await Promise.all(apps.map((s) => Promise.all([s.runner.drain(), s.explainer?.settle()])));
+}
+
 export function testApp(db: Db, options: TestAppOptions = {}) {
   const config = loadConfig({
     NODE_ENV: 'test',
@@ -27,6 +39,7 @@ export function testApp(db: Db, options: TestAppOptions = {}) {
         }),
   });
   const services: Services = buildServices(config, db, createLogger('silent'), options);
+  built.push(services);
   // The test db client is shared with the test; the services use it too.
   return { app: createApp(services, options), services };
 }

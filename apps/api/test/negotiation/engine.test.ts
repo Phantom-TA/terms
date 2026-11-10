@@ -5,7 +5,13 @@ import { AuditLogger } from '../../src/audit.js';
 import { DealStore } from '../../src/deals/deal-store.js';
 import { AppError } from '../../src/errors.js';
 import { isoToDate } from '../../src/mappers.js';
-import { NegotiationEngine, OFFER_TTL_MS } from '../../src/negotiation/engine.js';
+import {
+  type AsyncMovers,
+  NegotiationEngine,
+  type NoteFacts,
+  type NoteWriter,
+  OFFER_TTL_MS,
+} from '../../src/negotiation/engine.js';
 import { deterministicMovers, type Movers } from '../../src/negotiation/simulator.js';
 import { PlanService } from '../../src/plans/plan-service.js';
 import { createTestDb, resetDb } from '../helpers/db.js';
@@ -20,9 +26,12 @@ const plans = new PlanService(db, audit, deals, now);
 
 let ids: ScenarioIds;
 
-function engineWith(movers: Movers = deterministicMovers) {
+function engineWith(movers: AsyncMovers = deterministicMovers, notes: NoteWriter | null = null) {
   const approvals = new ApprovalService(db, audit, now);
-  return { engine: new NegotiationEngine(db, audit, deals, approvals, now, movers), approvals };
+  return {
+    engine: new NegotiationEngine(db, audit, deals, approvals, now, movers, notes),
+    approvals,
+  };
 }
 
 /** The demo: goal, planned and approved with Maya's $60 ceiling. Returns the deal ids by invoice. */
@@ -407,5 +416,122 @@ describe('NegotiationEngine edges', () => {
       data: { doNotContact: [ids.juniper] },
     });
     await expect(engine.sendOffer(demo.juniper)).rejects.toSatisfy(isAppError('POLICY_BLOCKED'));
+  });
+});
+
+describe('NegotiationEngine decides before it opens a transaction', () => {
+  it('lets a mover answer after a delay, as a model would', async () => {
+    const slow: AsyncMovers = {
+      client: async (view, offer, round) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return deterministicMovers.client(view, offer, round);
+      },
+      supplier: async (view, counter, round) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return deterministicMovers.supplier(view, counter, round);
+      },
+    };
+    const { engine } = engineWith(slow);
+    const demo = await approvedDemoPlan();
+    expect((await engine.runAgents(demo.harbor)).state).toBe('NEEDS_OWNER');
+  });
+
+  it('gives up with a conflict, and writes nothing, if the deal moved while the agent decided', async () => {
+    const demo = await approvedDemoPlan();
+    const racing: AsyncMovers = {
+      ...deterministicMovers,
+      client: async (view, offer, round) => {
+        // Someone else (a withdrawal, the owner) changes the deal while the model is thinking.
+        await db.deal.update({ where: { id: demo.harbor }, data: { version: { increment: 1 } } });
+        return deterministicMovers.client(view, offer, round);
+      },
+    };
+    const { engine } = engineWith(racing);
+    await engine.sendOffer(demo.harbor);
+    await expect(engine.clientTurn(demo.harbor)).rejects.toSatisfy(isAppError('CONFLICT'));
+    expect((await deals.get(db, demo.harbor)).state).toBe('SENT');
+    expect(await db.negotiationMessage.count({ where: { dealId: demo.harbor } })).toBe(1);
+  });
+
+  it('closes an offer that lapsed while the agent was deciding, instead of agreeing to it', async () => {
+    const demo = await approvedDemoPlan();
+    const slowButExpired: AsyncMovers = {
+      ...deterministicMovers,
+      client: (view, offer, round) => {
+        clock = new Date(clock.getTime() + OFFER_TTL_MS + 1000);
+        return deterministicMovers.client(view, offer, round);
+      },
+    };
+    const { engine } = engineWith(slowButExpired);
+    await engine.sendOffer(demo.juniper);
+    expect((await engine.clientTurn(demo.juniper)).state).toBe('EXPIRED');
+    expect(await db.negotiationMessage.count({ where: { dealId: demo.juniper } })).toBe(1);
+  });
+});
+
+describe('NegotiationEngine notes from a note writer', () => {
+  const written: NoteWriter = {
+    write: (facts: NoteFacts) =>
+      Promise.resolve(
+        `${facts.senderName} says ${facts.type} r${String(facts.round)} to ${facts.recipientName}.`,
+      ),
+  };
+
+  it('uses the writer for every message, including the one an owner approval releases', async () => {
+    const seen: NoteFacts[] = [];
+    const { engine, approvals } = engineWith(deterministicMovers, {
+      write: (facts) => {
+        seen.push(facts);
+        return written.write(facts);
+      },
+    });
+    const demo = await approvedDemoPlan();
+    await engine.runAgents(demo.harbor);
+    const ask = await db.approval.findFirstOrThrow({
+      where: { dealId: demo.harbor, type: 'COUNTER_OVER_PLAN' },
+    });
+    // The note the owner's yes will release was written when the move was chosen.
+    expect(ask.draftNote).toBe('Maya Studio says COUNTER r3 to Harbor & Co.');
+    await approvals.decide({
+      approvalId: ask.id,
+      businessId: ids.maya,
+      decision: 'APPROVED',
+      actor: 'OWNER',
+    });
+    await engine.runAgents(demo.harbor);
+    const notes = (
+      await db.negotiationMessage.findMany({
+        where: { dealId: demo.harbor },
+        orderBy: { createdAt: 'asc' },
+      })
+    ).map((m) => m.note);
+    expect(notes).toEqual([
+      'Maya Studio says OFFER r1 to Harbor & Co.',
+      'Harbor & Co says COUNTER r2 to Maya Studio.',
+      'Maya Studio says COUNTER r3 to Harbor & Co.',
+      'Harbor & Co says ACCEPT r3 to Maya Studio.',
+    ]);
+    // The writer is given public facts only: no reasons, limits or checks.
+    expect(JSON.stringify(seen)).not.toMatch(/ceiling|target|reason|policy|checks/i);
+    expect(seen[0]).toMatchObject({
+      type: 'OFFER',
+      from: 'supplier',
+      invoiceNumber: '1043',
+      tone: 'FRIENDLY_BRIEF',
+      terms: { amountEarly: '1750.00', discountPct: '0.80' },
+      payNow: '1736.00',
+    });
+  });
+
+  it('falls back to the plain note when the writer has nothing', async () => {
+    const { engine } = engineWith(deterministicMovers, { write: () => Promise.resolve(null) });
+    const demo = await approvedDemoPlan();
+    await engine.sendOffer(demo.harbor);
+    const message = await db.negotiationMessage.findFirstOrThrow({
+      where: { dealId: demo.harbor },
+    });
+    expect(message.note).toMatch(
+      /^Offer: \$1,736\.00 by 2026-11-09 against \$1,750\.00 of invoice 1043/,
+    );
   });
 });

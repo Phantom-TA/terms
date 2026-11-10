@@ -22,7 +22,9 @@ import { AppError, conflict, notFound } from '../errors.js';
 import { type Goal, type Prisma } from '../generated/prisma/client.js';
 import { dateToIso, isoToDate, money } from '../mappers.js';
 import { targetFor } from '../planner/planner.js';
-import { matchClients, parseGoalText } from './goal-parser.js';
+import { type AiGoalParser, mergeGoals } from '../ai/goal-role.js';
+import { AiRoleError } from '../ai/runner.js';
+import { matchClients, type ParsedGoal, parseGoalText } from './goal-parser.js';
 
 /** When the sentence names no deadline, plan for a week ahead (reported as defaulted). */
 export const DEFAULT_DEADLINE_DAYS = 7;
@@ -67,7 +69,33 @@ export class GoalService {
     private readonly db: Db,
     private readonly audit: AuditLogger,
     private readonly now: () => Date = () => new Date(),
+    /** The AI goal parser, or null: the rule-based parser then reads the sentence alone. */
+    private readonly aiParser: AiGoalParser | null = null,
   ) {}
+
+  /**
+   * Reads the sentence with the AI parser when there is one, filling gaps from the rules. If the
+   * model fails or answers something implausible, the rules read it alone, and the audit entry
+   * says so: a provider outage never blocks the owner.
+   */
+  private async readSentence(
+    text: string,
+    today: string,
+    clients: readonly { name: string }[],
+  ): Promise<{ parsed: ParsedGoal; parser: 'llm' | 'rules'; aiFailure: string | null }> {
+    const rules = parseGoalText(text, today);
+    if (this.aiParser === null) return { parsed: rules, parser: 'rules', aiFailure: null };
+    try {
+      const model = await this.aiParser.parse(text, {
+        today,
+        clientNames: clients.map((c) => c.name),
+      });
+      return { parsed: mergeGoals(model, rules), parser: 'llm', aiFailure: null };
+    } catch (err) {
+      if (!(err instanceof AiRoleError)) throw err;
+      return { parsed: rules, parser: 'rules', aiFailure: err.kind };
+    }
+  }
 
   private async supplierContext(db: DbOrTx, supplierId: string) {
     const supplier = await db.business.findUniqueOrThrow({
@@ -85,7 +113,7 @@ export class GoalService {
   async createFromText(supplierId: string, text: string): Promise<GoalView> {
     const { supplier, policy, clients } = await this.supplierContext(this.db, supplierId);
     const today = isoDateInTimeZone(this.now(), supplier.timeZone);
-    const parsed = parseGoalText(text, today);
+    const { parsed, parser, aiFailure } = await this.readSentence(text, today, clients);
     if (parsed.amount === null || parsed.amount <= 0n) {
       throw new AppError(
         'VALIDATION_FAILED',
@@ -151,7 +179,8 @@ export class GoalService {
       businessIds: [supplierId],
       summary: `Goal: ${formatMoney(parsed.amount)} by ${deadline}, max ${bpsToPercent(maxDiscountBps)}%${doNotContactIds.length > 0 ? `, ${String(doNotContactIds.length)} protected` : ''}`,
       details: {
-        parser: 'rules',
+        parser,
+        ...(aiFailure === null ? {} : { aiFailure }),
         defaulted,
         unmatched: entries.filter((e) => e.businessId === null).map((e) => e.name),
       },

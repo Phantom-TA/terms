@@ -75,6 +75,7 @@ export function registerPlanningRoutes(router: Router, s: Services): void {
     );
     const plan = await s.plans.getView(planId, session.businessId);
     await publishPlan(plan, session.businessId);
+    s.explainer?.start(planId); // explanations arrive later, announced by plan.updated
     return { plan };
   });
 
@@ -90,6 +91,7 @@ export function registerPlanningRoutes(router: Router, s: Services): void {
       body,
     );
     await publishPlan(result.plan, session.businessId);
+    s.explainer?.start(result.plan.id); // the edited row is explained afresh
     return result;
   });
 

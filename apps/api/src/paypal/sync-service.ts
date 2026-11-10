@@ -8,9 +8,10 @@
  *    sync walks the window in 31-day slices with a page cap, and records how far it covers.
  *  - The balance carries PayPal's own "as of" time.
  */
-import { formatMoney, isoDateInTimeZone, toCents } from '@terms/shared';
+import { formatMoney, fromCents, isoDateInTimeZone, toCents } from '@terms/shared';
 import { type PaypalClient } from 'paypal';
 import { z } from 'zod';
+import { type AiFlowLabeller, type TransactionToLabel } from '../ai/labeller-role.js';
 import { type AuditLogger } from '../audit.js';
 import { type Db } from '../db.js';
 import { AppError } from '../errors.js';
@@ -94,6 +95,8 @@ export class SyncService {
     private readonly sdk: PaypalClient,
     private readonly audit: AuditLogger,
     private readonly now: () => Date = () => new Date(),
+    /** Labels transactions the event code could not classify; null: they keep PayPal's words. */
+    private readonly labeller: AiFlowLabeller | null = null,
   ) {}
 
   private async clientFor(email: string | undefined, name: string | undefined): Promise<string> {
@@ -194,6 +197,7 @@ export class SyncService {
     let imported = 0;
     let total = 0;
     let lastRefreshed: Date | null = null;
+    const unclassified: TransactionToLabel[] = [];
     for (let from = start; from < end; from = new Date(from.getTime() + WINDOW_DAYS * 86_400_000)) {
       const to = new Date(
         Math.min(from.getTime() + WINDOW_DAYS * 86_400_000 - 1000, end.getTime()),
@@ -215,28 +219,49 @@ export class SyncService {
           const cents = toCents(Number(value).toFixed(2));
           // Transactions never change once PayPal reports them: import each one once.
           if ((await this.db.cashEvent.count({ where: { paypalTxnId: txnId } })) > 0) continue;
-          await this.db.cashEvent.create({
+          const kind = kindOfEvent(info?.transactionEventCode, cents);
+          const label =
+            info?.transactionSubject ??
+            info?.transactionNote ??
+            info?.transactionEventCode ??
+            'PayPal transaction';
+          const event = await this.db.cashEvent.create({
             data: {
               businessId: supplierId,
               date: isoToDate(date.slice(0, 10)),
               amountCents: cents < 0n ? -cents : cents,
               direction: cents < 0n ? 'OUT' : 'IN',
-              kind: kindOfEvent(info?.transactionEventCode, cents),
+              kind,
               source: 'PAYPAL_TXN',
-              label:
-                info?.transactionSubject ??
-                info?.transactionNote ??
-                info?.transactionEventCode ??
-                'PayPal transaction',
+              label,
               paypalTxnId: txnId,
             },
           });
           imported += 1;
+          if (kind === 'OTHER') {
+            unclassified.push({
+              id: event.id,
+              date: date.slice(0, 10),
+              direction: cents < 0n ? 'OUT' : 'IN',
+              amount: fromCents(cents < 0n ? -cents : cents),
+              description: label,
+            });
+          }
         }
         if ((res.totalPages ?? page) <= page) break;
       }
     }
+    await this.labelUnclassified(unclassified);
     return { imported, total, coveredFrom: start, coveredTo: lastRefreshed ?? end };
+  }
+
+  /** Gives the transactions the event code left as OTHER a kind and label, if a labeller is set. */
+  private async labelUnclassified(items: readonly TransactionToLabel[]): Promise<void> {
+    if (this.labeller === null || items.length === 0) return;
+    const labelled = await this.labeller.label(items);
+    for (const [id, { kind, label }] of labelled) {
+      await this.db.cashEvent.update({ where: { id }, data: { kind, label } });
+    }
   }
 
   async readBalance(): Promise<SyncResult['balance']> {

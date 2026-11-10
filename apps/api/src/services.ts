@@ -3,6 +3,10 @@
  * deal changes become live events). The HTTP layer receives this container; tests build it with a
  * test database and a fake PayPal.
  */
+import { type AiServices, buildAiServices } from './ai/index.js';
+import { type AiChat, buildAiChat } from './ai/chat.js';
+import { type AiRunner, buildAiRunner } from './ai/runner.js';
+import { AiStudio } from './ai/studio-role.js';
 import { ApprovalService } from './approvals/approval-service.js';
 import { AuditLogger } from './audit.js';
 import { type Config } from './config.js';
@@ -15,6 +19,7 @@ import { EventBus } from './http/events.js';
 import { SessionService } from './http/session.js';
 import { type Logger } from './logger.js';
 import { NegotiationEngine } from './negotiation/engine.js';
+import { deterministicMovers } from './negotiation/simulator.js';
 import { OfferTokens } from './offers/offer-tokens.js';
 import { InvoiceService } from './paypal/invoice-service.js';
 import { PaymentService } from './paypal/payment-service.js';
@@ -25,6 +30,7 @@ import { SyncService } from './paypal/sync-service.js';
 import { VaultService } from './paypal/vault-service.js';
 import { WebhookService } from './paypal/webhook-service.js';
 import { WriteLedger } from './paypal/write-ledger.js';
+import { PlanExplainer } from './plans/plan-explainer.js';
 import { PlanService } from './plans/plan-service.js';
 
 export interface PayPalServices {
@@ -47,6 +53,12 @@ export interface Services {
   approvals: ApprovalService;
   plans: PlanService;
   goals: GoalService;
+  /** The AI roles, or null when no AI is configured (every role then has a fallback). */
+  ai: AiServices | null;
+  /** The Cash Studio strategist; null without AI. */
+  studio: AiStudio | null;
+  /** Fills plan rows' explanations in the background; null without AI. */
+  explainer: PlanExplainer | null;
   engine: NegotiationEngine;
   events: EventBus;
   sessions: SessionService;
@@ -63,6 +75,10 @@ export interface Services {
 
 export interface ServiceOverrides {
   now?: () => Date;
+  /** Test seam: the AI runner. Omitted: built from the configuration. Null: no AI at all. */
+  aiRunner?: AiRunner | null;
+  /** Test seam: the AI chat for the Cash Studio. Omitted: built from the configuration. */
+  aiChat?: AiChat | null;
   /** Test seam: the fake PayPal transport for both the SDK and the REST client. */
   paypalFetch?: typeof globalThis.fetch;
   /** Test seam: PayPal's signing certificate for local webhook verification. */
@@ -80,12 +96,28 @@ export function buildServices(
   const deals = new DealStore(db, audit);
   const approvals = new ApprovalService(db, audit, now);
   const plans = new PlanService(db, audit, deals, now);
-  const goals = new GoalService(db, audit, now);
-  const engine = new NegotiationEngine(db, audit, deals, approvals, now);
+  const ai = buildAiServices(
+    overrides.aiRunner === undefined ? buildAiRunner(config.llm, logger) : overrides.aiRunner,
+    logger,
+  );
+  const chat = overrides.aiChat === undefined ? buildAiChat(config.llm, logger) : overrides.aiChat;
+  const studio = chat === null ? null : new AiStudio(chat);
+  const goals = new GoalService(db, audit, now, ai?.goals ?? null);
+  const negotiateWithAi = ai !== null && config.llm.negotiation === 'ai';
+  const engine = new NegotiationEngine(
+    db,
+    audit,
+    deals,
+    approvals,
+    now,
+    negotiateWithAi ? ai.movers : deterministicMovers,
+    negotiateWithAi ? ai.notes : null,
+  );
   const events = new EventBus(db, now);
   // Sessions run on the wall clock, never a business clock override.
   const sessions = new SessionService(db);
   const ledger = new WriteLedger(now);
+  const explainer = ai === null ? null : new PlanExplainer(db, plans, ai.explainer, events, logger);
   const offerTokens = new OfferTokens(config.offerTokenSecret, config.appBaseUrl, now);
 
   let paypal: PayPalServices | null = null;
@@ -101,7 +133,7 @@ export function buildServices(
       settlement,
       vault: new VaultService(db, sdk, ledger, audit, config.appBaseUrl),
       payments: new PaymentService(db, sdk, ledger, audit, deals, invoices, now),
-      sync: new SyncService(db, rest, sdk, audit, now),
+      sync: new SyncService(db, rest, sdk, audit, now, ai?.labeller ?? null),
       webhooks: new WebhookService(db, rest, ledger, audit, settlement, {
         webhookId: config.paypal.webhookId,
         ...(overrides.fetchCert === undefined ? {} : { fetchCert: overrides.fetchCert }),
@@ -194,6 +226,9 @@ export function buildServices(
     approvals,
     plans,
     goals,
+    ai,
+    studio,
+    explainer,
     engine,
     events,
     sessions,

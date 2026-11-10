@@ -32,11 +32,35 @@ import { type AuditLogger } from '../audit.js';
 import { type Db, type DbOrTx } from '../db.js';
 import { type DealStore } from '../deals/deal-store.js';
 import { AppError, conflict, notFound, policyBlocked } from '../errors.js';
-import { type Prisma } from '../generated/prisma/client.js';
+import { type Goal, type Prisma } from '../generated/prisma/client.js';
 import { dateToIso, isoToDate, money } from '../mappers.js';
-import { buildPlan, isGoalMet, type PlannerInvoice, targetFor } from '../planner/planner.js';
+import {
+  buildPlan,
+  isGoalMet,
+  type PlannerInput,
+  type PlannerInvoice,
+  targetFor,
+} from '../planner/planner.js';
 
 const OFFER_ACTIONS: readonly ActionType[] = ['PARTIAL_PAYMENT', 'EARLY_DISCOUNT', 'NEGOTIATE'];
+/** What the planner would do with a different maximum discount (nothing is saved). */
+export interface CapSimulation {
+  maxDiscountPct: string;
+  target: string;
+  plannedCommitted: string;
+  plannedCost: string;
+  shortfall: boolean;
+  offers: {
+    invoiceNumber: string;
+    client: string;
+    action: string;
+    discountPct: string | null;
+    amountEarly: string | null;
+    cost: string;
+    committedIfAgreed: string;
+  }[];
+}
+
 const OPEN_STATUSES = ['SENT', 'UNPAID', 'PARTIALLY_PAID', 'SCHEDULED', 'PAYMENT_PENDING'] as const;
 
 export function isOfferAction(action: ActionType): boolean {
@@ -117,6 +141,80 @@ export class PlanService {
   }
 
   /** Runs the planner on a goal; replaces any earlier DRAFT plan of that goal. */
+  /** What the planner needs for a goal: the supplier's open invoices and the goal's limits. */
+  private async plannerInputs(db: DbOrTx, goal: Goal, today: string) {
+    const policy = await db.supplierPolicy.findUnique({ where: { businessId: goal.supplierId } });
+    const invoices = await db.invoice.findMany({
+      where: {
+        supplierId: goal.supplierId,
+        paypalStatus: { in: [...OPEN_STATUSES] },
+        amountDueCents: { gt: 0 },
+      },
+      include: { client: true },
+      orderBy: [{ dueDate: 'asc' }, { number: 'asc' }],
+    });
+    const doNotContact = [...new Set([...goal.doNotContactIds, ...(policy?.doNotContact ?? [])])];
+    const plannerInvoices: PlannerInvoice[] = invoices.map((inv) => ({
+      id: inv.id,
+      number: inv.number,
+      clientId: inv.clientId,
+      clientName: inv.client.name,
+      clientHasAgent: inv.client.hasAgent,
+      amountDue: inv.amountDueCents,
+      dueDate: dateToIso(inv.dueDate),
+    }));
+    const input: PlannerInput = {
+      today,
+      deadline: dateToIso(goal.deadline),
+      gap: goal.amountCents,
+      bufferBps: goal.bufferBps,
+      maxDiscountBps: goal.maxDiscountBps,
+      openingDiscountBps: goal.openingDiscountBps,
+      doNotContact,
+      invoices: plannerInvoices,
+    };
+    return { policy, invoices, doNotContact, input };
+  }
+
+  /**
+   * What the planner would do for a goal with a different maximum discount, without saving
+   * anything: the owner's "what if I allowed 1.5%?" (CONTEXT.md, Cash Studio). Read-only.
+   */
+  async simulateCap(
+    goalId: string,
+    supplierId: string,
+    maxDiscountBps: number,
+  ): Promise<CapSimulation> {
+    const goal = await this.db.goal.findUnique({ where: { id: goalId } });
+    if (goal?.supplierId !== supplierId) throw notFound('Goal');
+    const today = await this.today(this.db, supplierId);
+    const { invoices, input } = await this.plannerInputs(this.db, goal, today);
+    const result = buildPlan({
+      ...input,
+      maxDiscountBps,
+      openingDiscountBps: Math.min(input.openingDiscountBps, maxDiscountBps),
+    });
+    const byId = new Map(invoices.map((inv) => [inv.id, inv]));
+    return {
+      maxDiscountPct: bpsToPercent(maxDiscountBps),
+      target: money(result.target),
+      plannedCommitted: money(result.plannedCommitted),
+      plannedCost: money(result.plannedCost),
+      shortfall: result.shortfall,
+      offers: result.rows
+        .filter((r) => r.rank === 'PRIMARY' && isOfferAction(r.action))
+        .map((r) => ({
+          invoiceNumber: byId.get(r.invoiceId)?.number ?? '',
+          client: byId.get(r.invoiceId)?.client.name ?? '',
+          action: r.action,
+          discountPct: r.discountBps === null ? null : bpsToPercent(r.discountBps),
+          amountEarly: r.amountEarly === null ? null : money(r.amountEarly),
+          cost: money(r.cost),
+          committedIfAgreed: money(r.committedIfAgreed),
+        })),
+    };
+  }
+
   async createPlan(goalId: string, costCeiling?: bigint): Promise<string> {
     return this.db.$transaction(async (tx) => {
       const goal = await tx.goal.findUnique({ where: { id: goalId } });
@@ -124,37 +222,9 @@ export class PlanService {
       if (goal.status === 'ACTIVE' || goal.status === 'MET' || goal.status === 'CANCELLED') {
         throw conflict(`Goal is ${goal.status.toLowerCase()}; start a new goal to re-plan`);
       }
-      const policy = await tx.supplierPolicy.findUnique({ where: { businessId: goal.supplierId } });
       const today = await this.today(tx, goal.supplierId);
-      const invoices = await tx.invoice.findMany({
-        where: {
-          supplierId: goal.supplierId,
-          paypalStatus: { in: [...OPEN_STATUSES] },
-          amountDueCents: { gt: 0 },
-        },
-        include: { client: true },
-        orderBy: [{ dueDate: 'asc' }, { number: 'asc' }],
-      });
-      const doNotContact = [...new Set([...goal.doNotContactIds, ...(policy?.doNotContact ?? [])])];
-      const plannerInvoices: PlannerInvoice[] = invoices.map((inv) => ({
-        id: inv.id,
-        number: inv.number,
-        clientId: inv.clientId,
-        clientName: inv.client.name,
-        clientHasAgent: inv.client.hasAgent,
-        amountDue: inv.amountDueCents,
-        dueDate: dateToIso(inv.dueDate),
-      }));
-      const result = buildPlan({
-        today,
-        deadline: dateToIso(goal.deadline),
-        gap: goal.amountCents,
-        bufferBps: goal.bufferBps,
-        maxDiscountBps: goal.maxDiscountBps,
-        openingDiscountBps: goal.openingDiscountBps,
-        doNotContact,
-        invoices: plannerInvoices,
-      });
+      const { policy, invoices, doNotContact, input } = await this.plannerInputs(tx, goal, today);
+      const result = buildPlan(input);
 
       await tx.plan.updateMany({
         where: { goalId, status: 'DRAFT' },

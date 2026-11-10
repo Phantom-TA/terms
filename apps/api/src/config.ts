@@ -24,6 +24,11 @@ const EnvSchema = z.object({
   LLM_API_KEY: optionalSecret,
   LLM_MODEL: z.string().min(1).default('claude-sonnet-5-5'),
   LLM_MODEL_FAST: z.string().min(1).default('claude-haiku-5-5'),
+  /** live: call the provider; record: call it and save each answer; replay: use saved answers. */
+  AI_MODE: z.enum(['live', 'record', 'replay']).default('live'),
+  AI_FIXTURE_DIR: z.string().min(1).default('apps/api/test/fixtures/ai'),
+  /** deterministic: negotiate with the standard strategies and plain notes even when AI is set up. */
+  AI_NEGOTIATION: z.enum(['ai', 'deterministic']).default('ai'),
 
   SESSION_SECRET: optionalSecret,
   OFFER_TOKEN_SECRET: optionalSecret,
@@ -48,6 +53,10 @@ export interface Config {
     apiKey: string | null;
     model: string;
     fastModel: string;
+    mode: 'live' | 'record' | 'replay';
+    fixtureDir: string;
+    negotiation: 'ai' | 'deterministic';
+    /** True when the AI roles can answer: a key is set, or recorded answers are replayed. */
     configured: boolean;
   };
   sessionSecret: string;
@@ -109,7 +118,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       apiKey,
       model: e.LLM_MODEL,
       fastModel: e.LLM_MODEL_FAST,
-      configured: apiKey !== null,
+      mode: e.AI_MODE,
+      fixtureDir: e.AI_FIXTURE_DIR,
+      negotiation: e.AI_NEGOTIATION,
+      configured: apiKey !== null || e.AI_MODE === 'replay',
     },
     sessionSecret: e.SESSION_SECRET ?? DEV_ONLY_SECRET,
     offerTokenSecret: e.OFFER_TOKEN_SECRET ?? DEV_ONLY_SECRET,

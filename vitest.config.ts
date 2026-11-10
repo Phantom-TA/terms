@@ -22,6 +22,7 @@ export default defineConfig({
         'apps/api/src/approvals/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
         'apps/api/src/negotiation/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
         'apps/api/src/paypal/**': { lines: 90, functions: 85, branches: 85, statements: 90 },
+        'apps/api/src/ai/**': { lines: 90, functions: 90, branches: 85, statements: 90 },
       },
     },
   },

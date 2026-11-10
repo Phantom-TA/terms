@@ -34,17 +34,46 @@ import { type DealStore, termsJson } from '../deals/deal-store.js';
 import { AppError, conflict, notFound, policyBlocked } from '../errors.js';
 import { type Approval, type Deal } from '../generated/prisma/client.js';
 import { dateToIso } from '../mappers.js';
-import { deterministicMovers, type Movers } from './simulator.js';
+import { guardClientMove, guardSupplierMove, sameTerms } from './guards.js';
+import { deterministicMovers } from './simulator.js';
 import {
   type ClientMove,
   type ClientView,
-  clientChecks,
   daysEarlyOf,
   type SupplierMove,
   type SupplierView,
   supplierChecks,
   type Terms,
 } from './strategies.js';
+
+/** A mover may answer at once (the strategies) or after a model call. */
+export interface AsyncMovers {
+  client: (view: ClientView, offer: Terms, round: number) => ClientMove | Promise<ClientMove>;
+  supplier: (
+    view: SupplierView,
+    counter: Terms,
+    round: number,
+  ) => SupplierMove | Promise<SupplierMove>;
+}
+
+/** What a note writer is told: public facts about one message, never a side's reasons. */
+export interface NoteFacts {
+  type: MessageType;
+  from: 'supplier' | 'client';
+  senderName: string;
+  recipientName: string;
+  invoiceNumber: string;
+  round: number;
+  terms: NegotiationTerms | null;
+  /** What the early part costs the payer after the discount. */
+  payNow: string | null;
+  tone: 'FRIENDLY_BRIEF' | 'FORMAL' | 'WARM_DETAILED';
+}
+
+/** Writes the human-readable note on a message, or null to use the plain deterministic one. */
+export interface NoteWriter {
+  write(facts: NoteFacts): Promise<string | null>;
+}
 
 export type HumanReply =
   { kind: 'PAY_NOW' } | { kind: 'PAY_PART'; amountEarly: bigint } | { kind: 'NOT_NOW' };
@@ -77,12 +106,6 @@ export function wireToTerms(w: NegotiationTerms): Terms {
   };
 }
 
-const sameTerms = (a: Terms, b: Terms): boolean =>
-  a.amountEarly === b.amountEarly &&
-  a.discountBps === b.discountBps &&
-  a.payBy === b.payBy &&
-  a.remainderDue === b.remainderDue;
-
 const dealInclude = {
   invoice: true,
   client: { include: { clientPolicy: true } },
@@ -104,7 +127,8 @@ export class NegotiationEngine {
     private readonly deals: DealStore,
     private readonly approvals: ApprovalService,
     private readonly now: () => Date = () => new Date(),
-    private readonly movers: Movers = deterministicMovers,
+    private readonly movers: AsyncMovers = deterministicMovers,
+    private readonly notes: NoteWriter | null = null,
   ) {
     approvals.onDecision('COUNTER_OVER_PLAN', (tx, approval) => this.onOwnerDecision(tx, approval));
   }
@@ -244,102 +268,176 @@ export class NegotiationEngine {
     }
   }
 
+  /** The note both sides read: written by the note writer when there is one, else plain. */
+  private async composeNote(
+    ctx: Ctx,
+    from: 'supplier' | 'client',
+    type: MessageType,
+    terms: Terms | null,
+    round: number,
+  ): Promise<string> {
+    const plain = this.note(type, terms, ctx);
+    if (this.notes === null) return plain;
+    const sender = from === 'supplier' ? ctx.supplier.name : ctx.deal.client.name;
+    const recipient = from === 'supplier' ? ctx.deal.client.name : ctx.supplier.name;
+    const written = await this.notes.write({
+      type,
+      from,
+      senderName: sender,
+      recipientName: recipient,
+      invoiceNumber: ctx.deal.invoice.number,
+      round,
+      terms: terms === null ? null : termsToWire(terms),
+      payNow: terms === null ? null : fromCents(paymentFor(terms.amountEarly, terms.discountBps)),
+      tone:
+        from === 'supplier'
+          ? (ctx.supplier.supplierPolicy?.tone ?? 'FRIENDLY_BRIEF')
+          : 'FRIENDLY_BRIEF',
+    });
+    return written ?? plain;
+  }
+
+  private isExpired(deal: Deal): boolean {
+    return deal.expiresAt !== null && deal.expiresAt.getTime() <= this.now().getTime();
+  }
+
+  /**
+   * Decide first, then apply. A model's answer can take seconds, which must never happen inside a
+   * database transaction: `decide` reads the deal and chooses (possibly asking a model), and only
+   * then does `apply` open the transaction, check the deal has not changed in the meantime, and
+   * make the change.
+   */
+  private async twoPhase<P>(
+    dealId: string,
+    decide: (ctx: Ctx) => Promise<P>,
+    apply: (tx: DbOrTx, ctx: Ctx, decided: P) => Promise<Deal>,
+  ): Promise<Deal> {
+    const before = await this.load(this.db, dealId);
+    const decided = await decide(before);
+    return this.db.$transaction(
+      async (tx) => {
+        const ctx = await this.load(tx, dealId);
+        if (ctx.deal.version !== before.deal.version) {
+          throw conflict('The deal changed while the agents were deciding; try again');
+        }
+        return apply(tx, ctx, decided);
+      },
+      { isolationLevel: 'Serializable' },
+    );
+  }
+
   // ------------------------------------------------------------------ the opening offer
 
   /** Sends the plan's offer for an APPROVED offer deal (round 1). */
   async sendOffer(dealId: string): Promise<Deal> {
-    return this.db.$transaction(async (tx) => {
-      const ctx = await this.load(tx, dealId);
-      const { deal } = ctx;
-      if (deal.state !== 'APPROVED') throw conflict(`Deal is ${deal.state}, not APPROVED`);
-      if (deal.action === 'REMINDER' || deal.action === 'NONE')
-        throw conflict('This deal sends no offer');
-      const amount = deal.planItem.amountEarlyCents;
-      const bps = deal.planItem.discountBps;
-      if (amount === null || bps === null) throw conflict('The plan row has no offer terms');
-      const terms: Terms = {
-        amountEarly: amount,
-        discountBps: bps,
-        payBy: ctx.today,
-        remainderDue: amount < ctx.supplierView.invoiceDue ? ctx.supplierView.dueDate : null,
-      };
-      const checks = supplierChecks(ctx.supplierView, terms, 1);
-      // The plan was approved within its ceiling; any block means the world changed since.
-      if (isBlocked(checks)) throw policyBlocked('The plan offer no longer passes policy', checks);
-      if (checks.some((c) => c.result === 'needs_approval')) {
-        // Only the cost ceiling can need approval: the owner may have approved this row over it.
-        const approved = await tx.approval.findFirst({
-          where: { type: 'BACKUP_OVER_CEILING', subjectId: deal.planItemId, decision: 'APPROVED' },
-        });
-        if (approved === null)
-          throw policyBlocked('The offer would cross the plan ceiling', checks);
-      }
-      const expiresAt = new Date(this.now().getTime() + OFFER_TTL_MS);
-      await this.message(tx, ctx, {
-        from: 'supplier',
-        actor: 'SUPPLIER_AGENT',
-        type: 'OFFER',
-        terms,
-        round: 1,
-        note: this.note('OFFER', terms, ctx),
-        checks,
-        expiresAt,
-      });
-      return this.deals.transition(
-        {
-          dealId,
-          to: 'SENT',
+    return this.twoPhase(
+      dealId,
+      async (ctx) => {
+        const { deal } = ctx;
+        if (deal.state !== 'APPROVED') throw conflict(`Deal is ${deal.state}, not APPROVED`);
+        if (deal.action === 'REMINDER' || deal.action === 'NONE')
+          throw conflict('This deal sends no offer');
+        const amount = deal.planItem.amountEarlyCents;
+        const bps = deal.planItem.discountBps;
+        if (amount === null || bps === null) throw conflict('The plan row has no offer terms');
+        const terms: Terms = {
+          amountEarly: amount,
+          discountBps: bps,
+          payBy: ctx.today,
+          remainderDue: amount < ctx.supplierView.invoiceDue ? ctx.supplierView.dueDate : null,
+        };
+        const checks = supplierChecks(ctx.supplierView, terms, 1);
+        // The plan was approved within its ceiling; any block means the world changed since.
+        if (isBlocked(checks))
+          throw policyBlocked('The plan offer no longer passes policy', checks);
+        const note = await this.composeNote(ctx, 'supplier', 'OFFER', terms, 1);
+        return { terms, checks, note };
+      },
+      async (tx, ctx, { terms, checks, note }) => {
+        if (checks.some((c) => c.result === 'needs_approval')) {
+          // Only the cost ceiling can need approval: the owner may have approved this row over it.
+          const approved = await tx.approval.findFirst({
+            where: {
+              type: 'BACKUP_OVER_CEILING',
+              subjectId: ctx.deal.planItemId,
+              decision: 'APPROVED',
+            },
+          });
+          if (approved === null)
+            throw policyBlocked('The offer would cross the plan ceiling', checks);
+        }
+        const expiresAt = new Date(this.now().getTime() + OFFER_TTL_MS);
+        await this.message(tx, ctx, {
+          from: 'supplier',
           actor: 'SUPPLIER_AGENT',
-          reason: `Offer sent: ${bpsToPercent(terms.discountBps)}% on ${formatMoney(terms.amountEarly)}`,
-          patch: { currentTerms: termsToWire(terms), round: 1, expiresAt },
-        },
-        tx,
-      );
-    });
+          type: 'OFFER',
+          terms,
+          round: 1,
+          note,
+          checks,
+          expiresAt,
+        });
+        return this.deals.transition(
+          {
+            dealId: ctx.deal.id,
+            to: 'SENT',
+            actor: 'SUPPLIER_AGENT',
+            reason: `Offer sent: ${bpsToPercent(terms.discountBps)}% on ${formatMoney(terms.amountEarly)}`,
+            patch: { currentTerms: termsToWire(terms), round: 1, expiresAt },
+          },
+          tx,
+        );
+      },
+    );
   }
 
   // ------------------------------------------------------------------ client agent
 
-  /** Checks a client move against the client's own policy before it takes effect. */
-  guardClientMove(view: ClientView, offer: Terms, round: number, move: ClientMove): void {
-    if (move.type === 'DECLINE') return;
-    if (move.type === 'ACCEPT') {
-      if (!sameTerms(move.terms, offer))
-        throw policyBlocked('An accept must accept the offer as made', []);
-      const checks = clientChecks(view, offer, round);
-      if (isBlocked(checks)) throw policyBlocked('Accepting breaks the client policy', checks);
-      return;
-    }
-    const checks = clientChecks(view, move.terms, round + 1);
-    if (
-      isBlocked(checks) ||
-      move.terms.amountEarly > view.invoiceDue ||
-      move.terms.amountEarly <= 0n
-    ) {
-      throw policyBlocked('The counter breaks the client policy', checks);
-    }
-  }
-
   /** The client agent answers the open offer. */
   async clientTurn(dealId: string): Promise<Deal> {
-    return this.db.$transaction(
-      async (tx) => {
-        const ctx = await this.load(tx, dealId);
+    return this.twoPhase(
+      dealId,
+      async (ctx) => {
         const { deal, current, clientView } = ctx;
         if (deal.state !== 'SENT' || current === null)
           throw conflict(`No open offer on deal (${deal.state})`);
         if (clientView === null || !deal.client.hasAgent)
           throw conflict(`${deal.client.name} has no agent`);
-        if (deal.expiresAt !== null && deal.expiresAt.getTime() <= this.now().getTime()) {
+        if (this.isExpired(deal)) return { expired: true as const };
+        const move = await this.movers.client(clientView, current, deal.round);
+        guardClientMove(clientView, current, deal.round, move);
+        const round = move.type === 'COUNTER' ? deal.round + 1 : deal.round;
+        const note =
+          move.type === 'ACCEPT'
+            ? await this.composeNote(ctx, 'client', 'ACCEPT', current, round)
+            : move.type === 'DECLINE'
+              ? await this.composeNote(ctx, 'client', 'DECLINE', null, round)
+              : await this.composeNote(ctx, 'client', 'COUNTER', move.terms, round);
+        return { expired: false as const, move, note };
+      },
+      async (tx, ctx, decided) => {
+        const { deal, current } = ctx;
+        if (current === null) throw conflict('No open offer on deal');
+        // An offer that lapsed while the agent was deciding is closed, never agreed to.
+        if (this.isExpired(deal)) {
           return this.deals.transition(
-            { dealId, to: 'EXPIRED', actor: 'SYSTEM', reason: 'The offer expired' },
+            { dealId: deal.id, to: 'EXPIRED', actor: 'SYSTEM', reason: 'The offer expired' },
             tx,
           );
         }
-        const move = this.movers.client(clientView, current, deal.round);
-        this.guardClientMove(clientView, current, deal.round, move);
+        if (decided.expired) throw conflict('The offer was still open; try again');
+        const { move, note } = decided;
         if (move.type === 'ACCEPT')
-          return this.agree(tx, ctx, current, 'client', 'CLIENT_AGENT', deal.round, move.checks);
+          return this.agree(
+            tx,
+            ctx,
+            current,
+            'client',
+            'CLIENT_AGENT',
+            deal.round,
+            move.checks,
+            note,
+          );
         if (move.type === 'DECLINE') {
           await this.message(tx, ctx, {
             from: 'client',
@@ -347,13 +445,13 @@ export class NegotiationEngine {
             type: 'DECLINE',
             terms: null,
             round: deal.round,
-            note: this.note('DECLINE', null, ctx),
+            note,
             checks: move.checks,
             expiresAt: null,
           });
           return this.deals.transition(
             {
-              dealId,
+              dealId: deal.id,
               to: 'DECLINED',
               actor: 'CLIENT_AGENT',
               reason: DECLINED,
@@ -370,13 +468,13 @@ export class NegotiationEngine {
           type: 'COUNTER',
           terms: move.terms,
           round,
-          note: this.note('COUNTER', move.terms, ctx),
+          note,
           checks: move.checks,
           expiresAt,
         });
         return this.deals.transition(
           {
-            dealId,
+            dealId: deal.id,
             to: 'COUNTERED',
             actor: 'CLIENT_AGENT',
             reason: COUNTERED,
@@ -386,7 +484,6 @@ export class NegotiationEngine {
           tx,
         );
       },
-      { isolationLevel: 'Serializable' },
     );
   }
 
@@ -484,38 +581,23 @@ export class NegotiationEngine {
 
   // ------------------------------------------------------------------ supplier agent
 
-  /** Checks a supplier move against the owner's policy before it takes effect. */
-  guardSupplierMove(view: SupplierView, counter: Terms, round: number, move: SupplierMove): void {
-    if (move.type === 'DECLINE') return;
-    const moveRound =
-      move.type === 'COUNTER' || (move.type === 'NEEDS_OWNER' && move.onApproval === 'COUNTER')
-        ? round + 1
-        : round;
-    const checks = supplierChecks(view, move.terms, moveRound);
-    if (isBlocked(checks)) throw policyBlocked('The move breaks the owner policy', checks);
-    const ceiling = checks.find((c) => c.rule === 'costCeiling');
-    if (move.type === 'NEEDS_OWNER') {
-      if (ceiling?.result !== 'needs_approval')
-        throw policyBlocked('Only a move over the ceiling needs the owner', checks);
-      return;
-    }
-    if (ceiling?.result !== 'pass')
-      throw policyBlocked('Over the cost ceiling without the owner', checks);
-    if (move.type === 'ACCEPT' && !sameTerms(move.terms, counter)) {
-      throw policyBlocked('An accept must accept the counter as made', checks);
-    }
-  }
-
   /** The supplier agent answers the client's counter. */
   async supplierTurn(dealId: string): Promise<Deal> {
-    return this.db.$transaction(
-      async (tx) => {
-        const ctx = await this.load(tx, dealId);
+    return this.twoPhase(
+      dealId,
+      async (ctx) => {
         const { deal, current } = ctx;
         if (deal.state !== 'COUNTERED' || current === null)
           throw conflict(`No counter to answer (${deal.state})`);
-        const move = this.movers.supplier(ctx.supplierView, current, deal.round);
-        this.guardSupplierMove(ctx.supplierView, current, deal.round, move);
+        const move = await this.movers.supplier(ctx.supplierView, current, deal.round);
+        guardSupplierMove(ctx.supplierView, current, deal.round, move);
+        // The note on whichever message this move produces. For a move that waits on the owner it
+        // is the note the move will carry if the owner approves, kept on the approval.
+        const note = await this.supplierNote(ctx, move);
+        return { move, note };
+      },
+      async (tx, ctx, { move, note }) => {
+        const { deal } = ctx;
         switch (move.type) {
           case 'ACCEPT':
             return this.agree(
@@ -526,6 +608,7 @@ export class NegotiationEngine {
               'SUPPLIER_AGENT',
               deal.round,
               move.checks,
+              note,
             );
           case 'COUNTER':
             return this.counterFromSupplier(
@@ -535,15 +618,38 @@ export class NegotiationEngine {
               'SUPPLIER_AGENT',
               move.reason,
               move.checks,
+              note,
             );
           case 'DECLINE':
-            return this.declineFromSupplier(tx, ctx, 'SUPPLIER_AGENT', move.reason, move.checks);
+            return this.declineFromSupplier(
+              tx,
+              ctx,
+              'SUPPLIER_AGENT',
+              move.reason,
+              move.checks,
+              note,
+            );
           case 'NEEDS_OWNER':
-            return this.askOwner(tx, ctx, move);
+            return this.askOwner(tx, ctx, move, note);
         }
       },
-      { isolationLevel: 'Serializable' },
     );
+  }
+
+  private async supplierNote(ctx: Ctx, move: SupplierMove): Promise<string> {
+    const round = ctx.deal.round;
+    switch (move.type) {
+      case 'ACCEPT':
+        return this.composeNote(ctx, 'supplier', 'ACCEPT', move.terms, round);
+      case 'COUNTER':
+        return this.composeNote(ctx, 'supplier', 'COUNTER', move.terms, round + 1);
+      case 'DECLINE':
+        return this.composeNote(ctx, 'supplier', 'DECLINE', null, round);
+      case 'NEEDS_OWNER':
+        return move.onApproval === 'COUNTER'
+          ? this.composeNote(ctx, 'supplier', 'COUNTER', move.terms, round + 1)
+          : this.composeNote(ctx, 'supplier', 'ACCEPT', move.terms, round);
+    }
   }
 
   private async counterFromSupplier(
@@ -553,6 +659,7 @@ export class NegotiationEngine {
     actor: Actor,
     privateReason: string,
     checks: readonly PolicyCheck[],
+    note?: string,
   ): Promise<Deal> {
     const round = ctx.deal.round + 1;
     const expiresAt = new Date(this.now().getTime() + OFFER_TTL_MS);
@@ -562,7 +669,7 @@ export class NegotiationEngine {
       type: 'COUNTER',
       terms,
       round,
-      note: this.note('COUNTER', terms, ctx),
+      note: note ?? this.note('COUNTER', terms, ctx),
       checks,
       expiresAt,
     });
@@ -585,6 +692,7 @@ export class NegotiationEngine {
     actor: Actor,
     privateReason: string,
     checks: readonly PolicyCheck[],
+    note?: string,
   ): Promise<Deal> {
     await this.message(tx, ctx, {
       from: 'supplier',
@@ -592,7 +700,7 @@ export class NegotiationEngine {
       type: 'DECLINE',
       terms: null,
       round: ctx.deal.round,
-      note: this.note('DECLINE', null, ctx),
+      note: note ?? this.note('DECLINE', null, ctx),
       checks,
       expiresAt: null,
     });
@@ -612,6 +720,7 @@ export class NegotiationEngine {
     tx: DbOrTx,
     ctx: Ctx,
     move: Extract<SupplierMove, { type: 'NEEDS_OWNER' }>,
+    draftNote: string,
   ): Promise<Deal> {
     const { deal } = ctx;
     const before = ctx.supplierView.otherRowsCost + deal.costCents;
@@ -650,6 +759,7 @@ export class NegotiationEngine {
       },
       expiresAt: deal.expiresAt,
       actor: 'SUPPLIER_AGENT',
+      draftNote,
     });
     return deal2;
   }
@@ -682,7 +792,16 @@ export class NegotiationEngine {
     );
     if (isBlocked(checks)) throw policyBlocked('The prepared move now breaks policy', checks);
     if (accepting) {
-      await this.agree(tx, ctx, terms, 'supplier', 'OWNER', ctx.deal.round, checks);
+      await this.agree(
+        tx,
+        ctx,
+        terms,
+        'supplier',
+        'OWNER',
+        ctx.deal.round,
+        checks,
+        approval.draftNote ?? undefined,
+      );
     } else {
       await this.counterFromSupplier(
         tx,
@@ -691,6 +810,7 @@ export class NegotiationEngine {
         'OWNER',
         'Approved by the owner over the plan ceiling',
         checks,
+        approval.draftNote ?? undefined,
       );
     }
   }
@@ -705,6 +825,7 @@ export class NegotiationEngine {
     actor: Actor,
     round: number,
     checks: readonly PolicyCheck[],
+    note?: string,
   ): Promise<Deal> {
     const { deal } = ctx;
     const cost = discountOn(terms.amountEarly, terms.discountBps);
@@ -715,7 +836,7 @@ export class NegotiationEngine {
       type: 'ACCEPT',
       terms,
       round,
-      note: this.note('ACCEPT', terms, ctx),
+      note: note ?? this.note('ACCEPT', terms, ctx),
       checks,
       expiresAt: null,
     });

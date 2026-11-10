@@ -549,6 +549,9 @@ model Approval {
   decidedAt          DateTime?
   decidedBy          Actor?
   decisionNote       String?
+  /// For an owner approval of a negotiation move: the note the move carries if approved, written
+  /// when the move was chosen so no model call happens inside the owner's decision.
+  draftNote          String?
   createdAt          DateTime              @default(now())
 
   @@index([businessId, decision])
