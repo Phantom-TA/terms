@@ -61,15 +61,37 @@ test.describe('a client', () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 
-  test('approves a payment over its limit on PayPal', async ({ page }) => {
+  test('approves a payment, pays the invoice in a new tab, and sees PayPal confirm it', async ({
+    page,
+    context,
+  }) => {
+    const errors = trackConsoleErrors(page);
     await asJuniperWithAnOffer(page);
     const card = page.getByRole('region', { name: /Needs your approval: Approve the \$4,960\.00/ });
-    await card.getByRole('button', { name: 'Approve in PayPal' }).click();
-    await expect(page).toHaveURL(/\/mock-paypal\?kind=payment/);
-    await expect(page.getByRole('heading', { name: 'Approve this payment' })).toBeVisible();
-    await page.getByRole('button', { name: 'Approve' }).click();
-    await expect(page).toHaveURL(/\/approvals$/);
-    await expect(page.getByRole('heading', { name: 'Approvals', level: 1 })).toBeVisible();
+    const opened = context.waitForEvent('page');
+    await card.getByRole('button', { name: 'Approve payment' }).click();
+
+    // PayPal's invoice opens in its own tab; this one stays on the desk, waiting.
+    const invoice = await opened;
+    await expect(invoice).toHaveURL(/\/mock-paypal\?kind=invoice&deal=deal_juniper/);
+    await expect(page).toHaveURL(/\/payables$/);
+    const paying = page.getByRole('region', { name: 'Being paid' });
+    await expect(paying).toContainText('Waiting for PayPal confirmation');
+    await expect(paying.getByRole('link', { name: /Open the PayPal invoice/ })).toBeVisible();
+    await waitForAnimations(page);
+    await expectNoA11yViolations(page);
+
+    await invoice.getByRole('button', { name: 'Pay with PayPal' }).click();
+    await expect(invoice.getByRole('status')).toContainText('PayPal doesn’t send you back');
+
+    // Paid only when "PayPal" confirms, over the event stream.
+    await expect(page.getByText('Payment confirmed by PayPal')).toBeVisible();
+    await expect(paying).toHaveCount(0);
+    await page.getByRole('button', { name: 'All' }).click();
+    await expect(
+      page.getByTestId('offers-grid').getByRole('row', { name: /Maya Studio/ }),
+    ).toContainText('Paid');
+    expect(withoutExpectedNotices(errors)).toEqual([]);
   });
 
   test('saves a PayPal method by approving it on PayPal', async ({ page }) => {

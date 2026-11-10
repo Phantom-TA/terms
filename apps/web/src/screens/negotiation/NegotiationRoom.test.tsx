@@ -137,13 +137,14 @@ describe('Negotiation Room', () => {
     );
   });
 
-  it('waits for PayPal, and says who has to approve', async () => {
+  it('waits for PayPal, without showing the owner the client’s own approval', async () => {
     negotiated();
     renderRoom('/negotiation?deal=deal_juniper');
     const notice = await screen.findByText('Waiting for PayPal confirmation');
     expect(notice.closest('[role="status"]')).toHaveTextContent(
-      'A person at Juniper Labs approves the $4,960.00 payment in PayPal',
+      'Juniper Labs pays through PayPal. This updates when the verified webhook arrives.',
     );
+    expect(screen.queryByText(/auto-pay|approves the/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Confirmed by PayPal/)).not.toBeInTheDocument();
   });
 

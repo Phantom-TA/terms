@@ -669,14 +669,15 @@ export class MockWorld {
       updatedAt: this.stamp(),
     };
     this.deals.set(itemId, next);
-    this.log(
+    const entry = this.log(
       'DEAL_TRANSITION',
-      `${deal.client.name}: ${deal.state.toLowerCase()} → ${state.toLowerCase()}. ${reason}`,
+      `${deal.client.name}: ${deal.state.toLowerCase()} → ${state.toLowerCase()}.`,
       actor,
       'DEAL',
       deal.id,
       deal.id,
     );
+    entry.details = { reason };
     return this.event('deal.updated', { deal: next });
   }
 
@@ -714,7 +715,7 @@ export class MockWorld {
     this.messages.set(deal.id, list);
     this.log(
       'NEGOTIATION_MESSAGE',
-      `${side === 'supplier' ? 'Your agent' : `${s.clientName}’s agent`}: ${type.toLowerCase()}.`,
+      `${side === 'supplier' ? 'Maya Studio' : s.clientName}’s agent: ${type.toLowerCase()}.`,
       message.actor,
       'DEAL',
       deal.id,
@@ -861,7 +862,7 @@ export class MockWorld {
           'client',
           'ACCEPT',
           juniperTerms,
-          'That clears our 12% hurdle, so we accept.',
+          'That works for us, so we accept.',
           [
             checkHurdleRate(juniperBps, juniperSpec.dueInDays, 1200),
             checkCashBuffer(50_000_00n, juniperPayment, 20_000_00n),
@@ -888,7 +889,7 @@ export class MockWorld {
           'item_inv_juniper',
           'AWAITING_PAYMENT',
           'SYSTEM',
-          'Above the auto-pay limit, so a person approves in PayPal.',
+          'Waiting for the client to pay.',
           { pendingApprovalId: 'appr_juniper_payment' },
         ),
       );
@@ -966,7 +967,7 @@ export class MockWorld {
           'client',
           'COUNTER',
           counterTerms,
-          '0.8% is below our 15% hurdle. Counter: 1.5%.',
+          'We could pay early at 1.5%.',
           [checkHurdleRate(harborBps, harborSpec.dueInDays, 1500), checkMaxDiscount(150, maxBps)],
           1,
         ),
@@ -1103,7 +1104,7 @@ export class MockWorld {
         'client',
         'ACCEPT',
         terms,
-        '18.5% a year clears our hurdle. Accepted.',
+        'That works for us. Accepted.',
         [
           checkHurdleRate(bps, s.dueInDays, 1500),
           checkCashBuffer(50_000_00n, early - cost, 20_000_00n),
@@ -1139,6 +1140,26 @@ export class MockWorld {
       ...this.refreshed(),
     );
     return { approval, events };
+  }
+
+  /** PayPal's verified webhook for a payment on this deal: the only way a deal becomes PAID. */
+  confirmPayment(dealId: string): ServerEvent[] {
+    const deal = [...this.deals.values()].find((d) => d.id === dealId) ?? bad('No deal');
+    if (deal.state !== 'AWAITING_PAYMENT') bad('This deal is not waiting for a payment.');
+    return [
+      this.record(
+        deal.id,
+        'PAYMENT_RECORDED',
+        'PayPal confirmed the payment (PAYMENT.CAPTURE.COMPLETED, verified).',
+        'PAYPAL',
+        null,
+        true,
+      ),
+      this.moveDeal(deal.planItemId, 'PAID', 'PAYPAL', 'PayPal confirmed the payment.', {
+        pendingApprovalId: null,
+      }),
+      ...this.refreshed(),
+    ];
   }
 
   dealDetail(dealId: string): DealDetail | null {

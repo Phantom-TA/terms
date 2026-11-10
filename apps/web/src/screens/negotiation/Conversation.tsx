@@ -86,16 +86,10 @@ function PaymentStatus({ deal }: { deal: DealDetail }) {
     );
   }
   if (deal.state !== 'AWAITING_PAYMENT') return null;
-  const clientApproval = deal.approvals.find(
-    (a) => a.type === 'CLIENT_PAYMENT' && a.decision === 'PENDING',
-  );
+  // How the client pays is its own business (its approvals are not shown to the owner).
   return (
     <PendingNotice
-      detail={
-        clientApproval?.paymentAmount
-          ? `A person at ${deal.client.name} approves the ${formatMoney(clientApproval.paymentAmount)} payment in PayPal. This updates when the verified webhook arrives.`
-          : 'This updates when the verified webhook arrives.'
-      }
+      detail={`${deal.client.name} pays through PayPal. This updates when the verified webhook arrives.`}
     />
   );
 }

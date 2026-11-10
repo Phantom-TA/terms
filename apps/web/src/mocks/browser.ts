@@ -2,6 +2,7 @@ import { paths, type ServerEvent, type ServerEventType } from '@terms/shared';
 import { sse } from 'msw';
 import { setupWorker } from 'msw/browser';
 import { currentWorld, handlers, mockHooks } from './handlers';
+import { isMockPayment, MOCK_PAYPAL_CHANNEL } from '../screens/dev/mockPayPalChannel';
 
 declare global {
   interface Window {
@@ -21,6 +22,9 @@ const streamHandler = sse<Record<ServerEventType, string>>(
     const sender = (event: ServerEvent) => {
       client.send({ id: event.id, event: event.type, data: JSON.stringify(event) });
     };
+    // The app keeps one stream per tab, so a new one (after switching business, say) replaces
+    // the old, which can't be written to any more. MSW doesn't always abort the old request.
+    senders.clear();
     senders.add(sender);
     // A closed stream (a reconnect, or leaving for PayPal) can't be written to any more.
     request.signal.addEventListener('abort', () => {
@@ -64,5 +68,15 @@ if (!navigator.webdriver) {
     }, 800);
   };
 }
+
+// A payment made on the stand-in PayPal page, in another tab, arrives as PayPal's webhook would.
+new BroadcastChannel(MOCK_PAYPAL_CHANNEL).onmessage = (message: MessageEvent<unknown>) => {
+  if (!isMockPayment(message.data)) return;
+  try {
+    play(currentWorld().confirmPayment(message.data.dealId));
+  } catch {
+    // This tab's demo has no such deal waiting (it was started afresh); nothing to confirm.
+  }
+};
 
 export const worker = setupWorker(...handlers, streamHandler);

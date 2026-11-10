@@ -1,4 +1,7 @@
 import {
+  type Actor,
+  type DealDetail,
+  type PolicyRule,
   addDays,
   type ApprovalView,
   type AuditEntry,
@@ -61,23 +64,72 @@ function privateTo(entry: AuditEntry): string | null {
   return null;
 }
 
+type Side = BusinessSummary['role'];
+
+const CLIENT_RULES: ReadonlySet<PolicyRule> = new Set([
+  'hurdleRate',
+  'cashBuffer',
+  'autoPayLimit',
+  'earlyPayCap',
+  'neverPayEarly',
+]);
+
+/** Whose limit a check is about. */
+const sideOfRule = (rule: PolicyRule): Side => (CLIENT_RULES.has(rule) ? 'CLIENT' : 'SUPPLIER');
+
+/** Whose step this was; Terms and PayPal belong to neither side. */
+function sideOfActor(actor: Actor): Side | null {
+  if (actor === 'OWNER' || actor === 'SUPPLIER_AGENT') return 'SUPPLIER';
+  if (actor === 'CLIENT_AGENT' || actor === 'CLIENT_HUMAN') return 'CLIENT';
+  return null;
+}
+
+/** Seen by both sides of a deal: what was said, how the deal moved, and PayPal's steps. */
+const isShared = (entry: AuditEntry) =>
+  entry.action === 'NEGOTIATION_MESSAGE' ||
+  entry.action === 'DEAL_TRANSITION' ||
+  entry.actor === 'PAYPAL' ||
+  entry.paypalCall !== null;
+
 /**
- * Each side sees its own records. The owner sees everything but a client's private settings. A
- * client sees its private settings and, on its deals, what was said, what its own side did and
- * PayPal's steps; never the owner's decisions or the reasons behind them.
+ * Each side sees its own records (as A confirmed for CR-4): both see the messages, PayPal's
+ * steps and the deal's state changes; each sees only its own approvals, reasons and checks. A
+ * client sees only its own deals, and a client's policy and saved method are its own.
  */
 function visibleTo(entry: AuditEntry, business: BusinessSummary, deals: ReadonlySet<string>) {
   const owner = privateTo(entry);
-  if (business.role === 'SUPPLIER') return owner === null;
   if (owner !== null) return owner === business.id;
-  if (entry.dealId === null || !deals.has(entry.dealId)) return false;
-  return (
-    entry.action === 'NEGOTIATION_MESSAGE' ||
-    entry.actor === 'CLIENT_AGENT' ||
-    entry.actor === 'CLIENT_HUMAN' ||
-    entry.actor === 'PAYPAL' ||
-    entry.paypalCall !== null
-  );
+  if (business.role === 'CLIENT' && (entry.dealId === null || !deals.has(entry.dealId)))
+    return false;
+  const side = sideOfActor(entry.actor);
+  return isShared(entry) || side === null || side === business.role;
+}
+
+/** A state change shows its reason only to the side that gave it, or when neither side did. */
+function withReason(entry: AuditEntry, viewer: Side): AuditEntry {
+  const reason = entry.details['reason'];
+  if (typeof reason !== 'string') return entry;
+  const side = sideOfActor(entry.actor);
+  if (side !== null && side !== viewer) return entry;
+  return { ...entry, summary: `${entry.summary} ${reason}` };
+}
+
+/** A deal as one side sees it: the other side's checks, reasons and approvals are left out. */
+export function dealFor(detail: DealDetail, viewer: Side): DealDetail {
+  return {
+    ...detail,
+    messages: detail.messages.map((m) => ({
+      ...m,
+      policyChecks: m.policyChecks.filter((c) => sideOfRule(c.rule) === viewer),
+    })),
+    history: detail.history.map((step) => {
+      const side = sideOfActor(step.actor);
+      return side === null || side === viewer ? step : { ...step, reason: '' };
+    }),
+    approvals: detail.approvals.filter(
+      (a) => (a.requestedFrom === 'OWNER' ? 'SUPPLIER' : 'CLIENT') === viewer,
+    ),
+  };
 }
 export class DeskValidationError extends Error {}
 
@@ -371,8 +423,19 @@ export class MockDesk {
     });
   }
 
-  paymentApprovalUrl(origin: string): string {
-    return `${origin}/mock-paypal?kind=payment&return=${encodeURIComponent('/approvals')}`;
+  /**
+   * The PayPal invoice page for an approved client payment, or null when the client's agent pays
+   * from its saved method. PayPal does not send the person back; its webhook confirms the payment.
+   * In mock mode the page is the dev-only stand-in (see MockPayPal).
+   */
+  paymentApprovalUrl(approval: ApprovalView, clientId: string, origin: string): string | null {
+    if (this.vaults.get(clientId)?.status === 'ACTIVE') return null;
+    const params = new URLSearchParams({
+      kind: 'invoice',
+      deal: approval.dealId ?? '',
+      amount: approval.paymentAmount ?? '',
+    });
+    return `${origin}/mock-paypal?${params.toString()}`;
   }
 
   // ------------------------------------------------------------------ audit
@@ -388,6 +451,7 @@ export class MockDesk {
     );
     const all = world.auditLog
       .filter((e) => visibleTo(e, business, mine))
+      .map((e) => withReason(e, business.role))
       .filter((e) => !query.actor || e.actor === query.actor)
       .filter((e) => !query.action || e.action === query.action)
       .filter((e) => !query.dealId || e.dealId === query.dealId)

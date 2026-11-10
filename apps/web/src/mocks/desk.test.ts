@@ -11,7 +11,7 @@ import {
   VaultView,
 } from '@terms/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DeskValidationError, MockDesk, TokenError } from './desk';
+import { dealFor, DeskValidationError, MockDesk, TokenError } from './desk';
 import { businesses } from './fixtures';
 import { MockWorld } from './world';
 
@@ -150,11 +150,31 @@ describe('approvals', () => {
     expect(desk.approvalsFor(harbor)).toEqual([]);
   });
 
-  it('hands a client payment to PayPal without changing the deal', () => {
+  it('hands a client payment to PayPal’s invoice page without changing the deal', () => {
+    negotiated();
+    const { approval } = world.decideApproval('appr_juniper_payment', 'APPROVED', null);
+    expect(world.dealDetail('deal_juniper')?.state).toBe('AWAITING_PAYMENT');
+    const url = desk.paymentApprovalUrl(approval, 'biz_juniper', 'http://x');
+    expect(url).toBe('http://x/mock-paypal?kind=invoice&deal=deal_juniper&amount=4960.00');
+  });
+
+  it('gives no PayPal page when the client’s agent pays from a saved method', () => {
+    negotiated();
+    const { approval } = world.decideApproval('appr_juniper_payment', 'APPROVED', null);
+    const { setupTokenId } = desk.setupVault('biz_juniper', 'http://x');
+    desk.confirmVault('biz_juniper', setupTokenId);
+    expect(desk.paymentApprovalUrl(approval, 'biz_juniper', 'http://x')).toBeNull();
+  });
+
+  it('marks a deal paid only on PayPal’s verified confirmation', () => {
     negotiated();
     world.decideApproval('appr_juniper_payment', 'APPROVED', null);
-    expect(world.dealDetail('deal_juniper')?.state).toBe('AWAITING_PAYMENT');
-    expect(desk.paymentApprovalUrl('http://x')).toContain('/mock-paypal?kind=payment');
+    const events = world.confirmPayment('deal_juniper');
+    expect(world.dealDetail('deal_juniper')?.state).toBe('PAID');
+    expect(events.some((e) => e.type === 'deal.updated')).toBe(true);
+    const confirmation = world.auditLog.find((e) => e.action === 'PAYMENT_RECORDED');
+    expect(confirmation).toMatchObject({ actor: 'PAYPAL', webhookVerified: true });
+    expect(() => world.confirmPayment('deal_juniper')).toThrow();
   });
 });
 
@@ -184,6 +204,22 @@ describe('audit', () => {
     expect(second.entries[0]!.at <= first.entries[2]!.at).toBe(true);
   });
 
+  it('shows both sides every state change, each with only its own reasons', () => {
+    negotiated();
+    const reasons = (business: typeof maya) =>
+      desk
+        .audit(business, { limit: 200, action: 'DEAL_TRANSITION' })
+        .entries.filter((e) => e.dealId === 'deal_harbor')
+        .map((e) => e.summary);
+    const owner = reasons(maya);
+    const client = reasons(harbor);
+    expect(client).toHaveLength(owner.length);
+    expect(owner.some((s) => s.includes('goes over your ceiling'))).toBe(true);
+    expect(client.some((s) => s.includes('ceiling'))).toBe(false);
+    expect(client.some((s) => s.includes('Harbor countered at 1.50%'))).toBe(true);
+    expect(owner.some((s) => s.includes('Harbor countered at 1.50%'))).toBe(false);
+  });
+
   it('keeps each side’s private records and the owner’s reasoning to itself', () => {
     negotiated();
     world.decideApproval('appr_harbor_counter', 'REJECTED', null);
@@ -204,12 +240,40 @@ describe('audit', () => {
     const client = desk.audit(harbor, { limit: 200 }).entries;
     expect(client.some((e) => e.action === 'CLIENT_POLICY_UPDATED')).toBe(true);
     expect(client.some((e) => e.action === 'VAULT_SETUP_STARTED')).toBe(false);
-    expect(client.some((e) => e.actor === 'OWNER')).toBe(false);
+    // The owner's steps reach the client only as the deal's state changes, without reasons.
+    const fromOwner = client.filter((e) => e.actor === 'OWNER');
+    expect(fromOwner.length).toBeGreaterThan(0);
+    expect(fromOwner.every((e) => e.action === 'DEAL_TRANSITION')).toBe(true);
+    expect(fromOwner.some((e) => e.summary.includes('You rejected'))).toBe(false);
     expect(client.some((e) => e.summary.includes('ceiling'))).toBe(false);
     expect(client.some((e) => e.action === 'NEGOTIATION_MESSAGE')).toBe(true);
 
     const juniperEntries = desk.audit(juniper, { limit: 200 }).entries;
     expect(juniperEntries.some((e) => e.action === 'VAULT_SETUP_STARTED')).toBe(true);
+  });
+});
+
+describe('a deal as each side sees it', () => {
+  const clientRules = ['hurdleRate', 'cashBuffer', 'autoPayLimit', 'earlyPayCap', 'neverPayEarly'];
+
+  it('shows the owner only the owner’s checks, reasons and approvals', () => {
+    negotiated();
+    const deal = dealFor(world.dealDetail('deal_juniper')!, 'SUPPLIER');
+    const checks = deal.messages.flatMap((m) => m.policyChecks.map((c) => c.rule));
+    expect(checks.length).toBeGreaterThan(0);
+    expect(checks.some((r) => clientRules.includes(r))).toBe(false);
+    expect(deal.approvals).toEqual([]);
+    expect(JSON.stringify(deal)).not.toMatch(/auto-pay|hurdle/i);
+  });
+
+  it('shows a client only the client’s checks, reasons and approvals', () => {
+    negotiated();
+    const deal = dealFor(world.dealDetail('deal_harbor')!, 'CLIENT');
+    const checks = deal.messages.flatMap((m) => m.policyChecks.map((c) => c.rule));
+    expect(checks.every((r) => clientRules.includes(r))).toBe(true);
+    expect(deal.approvals).toEqual([]);
+    expect(JSON.stringify(deal)).not.toMatch(/ceiling|your maximum/i);
+    expect(deal.history.map((h) => h.to)).toContain('NEEDS_OWNER');
   });
 });
 

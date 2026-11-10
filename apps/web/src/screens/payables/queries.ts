@@ -1,7 +1,8 @@
-import { type VaultResponse } from '@terms/shared';
+import { type DealSummary, type VaultResponse } from '@terms/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import { useServerEvent } from '../../api/StreamProvider';
+import { workbenchKeys } from '../workbench/queries';
 
 export type OfferStatus = 'OPEN' | 'CLOSED' | 'ALL';
 
@@ -41,10 +42,19 @@ export function useVaultConfirm() {
   });
 }
 
-/** Offers change as the agents negotiate and PayPal confirms. */
-export function usePayablesLive(): void {
+/**
+ * Offers change as the agents negotiate and PayPal confirms. `onPaid` hears of a deal PayPal has
+ * confirmed as paid, which is the only way a payment counts as made.
+ */
+export function usePayablesLive(onPaid?: (deal: DealSummary) => void): void {
   const queryClient = useQueryClient();
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['client-offers'] });
-  useServerEvent('deal.updated', refresh);
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['client-offers'] });
+  };
+  useServerEvent('deal.updated', (event) => {
+    refresh();
+    void queryClient.invalidateQueries({ queryKey: workbenchKeys.deal(event.data.deal.id) });
+    if (event.data.deal.state === 'PAID') onPaid?.(event.data.deal);
+  });
   useServerEvent('negotiation.message', refresh);
 }

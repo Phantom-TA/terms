@@ -20,7 +20,7 @@ import {
 } from '@terms/shared';
 import { delay, http, HttpResponse } from 'msw';
 import { businesses, health, sessionFor } from './fixtures';
-import { DeskValidationError, MockDesk, TokenError } from './desk';
+import { dealFor, DeskValidationError, MockDesk, TokenError } from './desk';
 import { MockWorld, PolicyBlockedError, ShapeError } from './world';
 
 const SESSION_KEY = 'terms.mock.session';
@@ -281,10 +281,23 @@ export const handlers = [
   }),
 
   http.get(endpoints.getDeal.path, ({ params }) => {
+    const business = sessionBusiness();
+    if (!business) return errorResponse('UNAUTHENTICATED', 'No demo session.');
     const detail = world.dealDetail(String(params['dealId']));
-    return detail
-      ? HttpResponse.json(detail)
-      : errorResponse('NOT_FOUND', 'That deal does not exist.');
+    // A client sees only its own deals, and each side only its own checks, reasons and approvals.
+    if (!detail || (business.role === 'CLIENT' && detail.client.id !== business.id))
+      return errorResponse('NOT_FOUND', 'That deal does not exist.');
+    // A payment approved without a saved method is paid on PayPal's invoice page.
+    const approved = detail.approvals.find(
+      (a) => a.type === 'CLIENT_PAYMENT' && a.decision === 'APPROVED',
+    );
+    const payerUrl =
+      detail.state === 'AWAITING_PAYMENT' && approved
+        ? desk.paymentApprovalUrl(approved, detail.client.id, location.origin)
+        : null;
+    return HttpResponse.json(
+      dealFor({ ...detail, paypal: { ...detail.paypal, payerUrl } }, business.role),
+    );
   }),
 
   http.get(endpoints.listAudit.path, ({ request }) => {
@@ -433,11 +446,14 @@ export const handlers = [
         body.data.decision,
         body.data.note ?? null,
       );
+      const paying = approval.type === 'CLIENT_PAYMENT' && approval.decision === 'APPROVED';
+      const paypalApprovalUrl = paying
+        ? desk.paymentApprovalUrl(approval, business.id, new URL(request.url).origin)
+        : null;
+      // With a saved method the agent pays at once, and PayPal's webhook confirms it.
+      if (paying && paypalApprovalUrl === null && approval.dealId)
+        events.push(...world.confirmPayment(approval.dealId));
       mockHooks.emit?.(events);
-      const paypalApprovalUrl =
-        approval.type === 'CLIENT_PAYMENT' && approval.decision === 'APPROVED'
-          ? desk.paymentApprovalUrl(new URL(request.url).origin)
-          : null;
       return HttpResponse.json({ approval, paypalApprovalUrl });
     } catch (error) {
       return errorResponse('CONFLICT', error instanceof Error ? error.message : 'Already decided.');
