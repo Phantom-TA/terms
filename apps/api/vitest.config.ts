@@ -7,6 +7,7 @@ export default defineProject({
     include: ['test/**/*.test.ts'],
     environment: 'node',
     globalSetup: ['test/global-setup.ts'],
+    setupFiles: ['test/setup.ts'],
     // Integration tests share one Postgres database, so test files run one at a time.
     fileParallelism: false,
     testTimeout: 20_000,
