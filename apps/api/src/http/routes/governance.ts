@@ -29,10 +29,23 @@ export function registerGovernanceRoutes(router: Router, s: Services): void {
     });
     const view = toApprovalView(decided);
     await publishApproval(decided, view);
-    // The decision may have moved its deal (the owner's yes on NEEDS_OWNER).
-    if (decided.dealId !== null) await s.publishDeals([decided.dealId]);
-    // A person approves in Terms; the client's agent then pays from its saved method.
-    return { approval: view, paypalApprovalUrl: null };
+    // The decision may have moved its deal (the owner's yes on NEEDS_OWNER); run the plan on.
+    let paypalApprovalUrl: string | null = null;
+    if (decided.dealId !== null) {
+      await s.publishDeals([decided.dealId]);
+      const deal = await s.db.deal.findUniqueOrThrow({ where: { id: decided.dealId } });
+      s.runner.kick(deal.planId);
+      // Without a saved PayPal method, the approved payment is made on the PayPal invoice.
+      if (decided.type === 'CLIENT_PAYMENT' && decided.decision === 'APPROVED') {
+        const vault = await s.db.vaultToken.findFirst({
+          where: { clientId: deal.clientId, status: 'ACTIVE' },
+        });
+        if (vault === null) paypalApprovalUrl = deal.payerUrl;
+      }
+    } else if (decided.planId !== null) {
+      s.runner.kick(decided.planId);
+    }
+    return { approval: view, paypalApprovalUrl };
   });
 
   // ------------------------------------------------------------- supplier policy

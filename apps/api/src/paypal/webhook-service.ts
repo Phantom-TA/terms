@@ -76,7 +76,7 @@ const CaptureResource = z.looseObject({
 
 export type WebhookOutcome =
   /** Verified, stored and acted on (or nothing to do for this type). */
-  | { status: 'processed'; eventId: string; type: string; detail: string }
+  | { status: 'processed'; eventId: string; type: string; detail: string; dealId: string | null }
   /** Already processed: PayPal re-delivered it. */
   | { status: 'duplicate'; eventId: string; type: string }
   /** Signature did not verify: stored for the audit trail, never acted on. */
@@ -255,12 +255,16 @@ export class WebhookService {
     }
 
     try {
-      const detail = await this.process(event.event_type, event.resource ?? {}, stored.id);
+      const { detail, dealId } = await this.process(
+        event.event_type,
+        event.resource ?? {},
+        stored.id,
+      );
       await this.db.webhookEvent.update({
         where: { id: stored.id },
         data: { processedAt: new Date(), processingError: null },
       });
-      return { status: 'processed', eventId: event.id, type: event.event_type, detail };
+      return { status: 'processed', eventId: event.id, type: event.event_type, detail, dealId };
     } catch (err) {
       await this.db.webhookEvent.update({
         where: { id: stored.id },
@@ -287,7 +291,12 @@ export class WebhookService {
         source,
       });
       detail = result.settled ? `deal ${result.deal.state}` : result.reason;
-      if (result.settled) businessIds = await this.dealBusinesses(result.deal.id);
+      if (result.settled) {
+        dealId = result.deal.id;
+        businessIds = await this.dealBusinesses(result.deal.id);
+      } else {
+        dealId = null;
+      }
     } else if (type.startsWith('INVOICING.INVOICE.')) {
       const invoice = WireInvoice.parse((resource as { invoice?: unknown }).invoice ?? resource);
       const result = await this.settlement.fromInvoice(invoice, source);
@@ -310,7 +319,7 @@ export class WebhookService {
       webhookVerified: true,
       paypalCall: WEBHOOK_CALLS.verify,
     });
-    return detail;
+    return { detail, dealId };
   }
 
   /** Webhooks belong to the PayPal account owner: the supplier businesses see them. */

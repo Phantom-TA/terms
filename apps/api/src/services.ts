@@ -8,6 +8,7 @@ import { AuditLogger } from './audit.js';
 import { type Config } from './config.js';
 import { type Db } from './db.js';
 import { DealStore } from './deals/deal-store.js';
+import { DealRunner } from './deals/runner.js';
 import { GoalService } from './goals/goal-service.js';
 import { dealSummary, dealSummaryInclude } from './http/deal-views.js';
 import { EventBus } from './http/events.js';
@@ -47,6 +48,8 @@ export interface Services {
   events: EventBus;
   sessions: SessionService;
   ledger: WriteLedger;
+  /** Executes approved plans in the background (serialized per plan). */
+  runner: DealRunner;
   /** Publishes deal.updated for deals after their change has committed. */
   publishDeals: (dealIds: readonly string[]) => Promise<void>;
   /** Null when PayPal credentials are not configured: PayPal routes answer NOT_CONFIGURED. */
@@ -129,6 +132,26 @@ export function buildServices(
     }
   };
 
+  const runner = new DealRunner({
+    db,
+    deals,
+    engine,
+    plans,
+    approvals,
+    audit,
+    events,
+    logger,
+    publishDeals,
+    paypal:
+      paypal === null
+        ? null
+        : {
+            remind: (dealId) => paypal.invoices.remind(dealId),
+            applyTerms: (dealId) => paypal.invoices.applyTerms(dealId),
+            payWithVault: (dealId) => paypal.payments.payWithVault(dealId),
+          },
+  });
+
   return {
     config,
     db,
@@ -143,6 +166,7 @@ export function buildServices(
     events,
     sessions,
     ledger,
+    runner,
     publishDeals,
     paypal,
   };

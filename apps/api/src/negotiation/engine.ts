@@ -46,6 +46,9 @@ import {
   type Terms,
 } from './strategies.js';
 
+export type HumanReply =
+  { kind: 'PAY_NOW' } | { kind: 'PAY_PART'; amountEarly: bigint } | { kind: 'NOT_NOW' };
+
 /** How long an offer or counter stays open. */
 export const OFFER_TTL_MS = 48 * 60 * 60 * 1000;
 
@@ -242,8 +245,14 @@ export class NegotiationEngine {
       };
       const checks = supplierChecks(ctx.supplierView, terms, 1);
       // The plan was approved within its ceiling; any block means the world changed since.
-      if (isBlocked(checks) || checks.some((c) => c.result === 'needs_approval')) {
-        throw policyBlocked('The plan offer no longer passes policy', checks);
+      if (isBlocked(checks)) throw policyBlocked('The plan offer no longer passes policy', checks);
+      if (checks.some((c) => c.result === 'needs_approval')) {
+        // Only the cost ceiling can need approval: the owner may have approved this row over it.
+        const approved = await tx.approval.findFirst({
+          where: { type: 'BACKUP_OVER_CEILING', subjectId: deal.planItemId, decision: 'APPROVED' },
+        });
+        if (approved === null)
+          throw policyBlocked('The offer would cross the plan ceiling', checks);
       }
       const expiresAt = new Date(this.now().getTime() + OFFER_TTL_MS);
       await this.message(tx, ctx, {
@@ -352,6 +361,98 @@ export class NegotiationEngine {
             actor: 'CLIENT_AGENT',
             reason: move.reason,
             patch: { currentTerms: termsToWire(move.terms), round, expiresAt },
+          },
+          tx,
+        );
+      },
+      { isolationLevel: 'Serializable' },
+    );
+  }
+
+  // ------------------------------------------------------------------ a person at the client
+
+  /**
+   * A reply from a person on the offer page: take the offer as made, ask to pay part of it now
+   * (a counter the supplier agent answers), or decline. A person's own judgement replaces the
+   * client agent's policy, so only the offer's shape is checked.
+   */
+  async humanReply(dealId: string, reply: HumanReply): Promise<Deal> {
+    return this.db.$transaction(
+      async (tx) => {
+        const ctx = await this.load(tx, dealId);
+        const { deal, current } = ctx;
+        if (deal.state !== 'SENT' || current === null)
+          throw conflict('This offer is no longer open');
+        if (deal.expiresAt !== null && deal.expiresAt.getTime() <= this.now().getTime()) {
+          return this.deals.transition(
+            { dealId, to: 'EXPIRED', actor: 'SYSTEM', reason: 'The offer expired' },
+            tx,
+          );
+        }
+        if (
+          reply.kind === 'PAY_NOW' ||
+          (reply.kind === 'PAY_PART' && reply.amountEarly === current.amountEarly)
+        ) {
+          return this.agree(tx, ctx, current, 'client', 'CLIENT_HUMAN', deal.round, []);
+        }
+        if (reply.kind === 'NOT_NOW') {
+          const reason = 'Not now, thanks';
+          await this.message(tx, ctx, {
+            from: 'client',
+            actor: 'CLIENT_HUMAN',
+            type: 'DECLINE',
+            terms: null,
+            round: deal.round,
+            note: this.note('DECLINE', null, ctx, reason),
+            checks: [],
+            expiresAt: null,
+          });
+          return this.deals.transition(
+            {
+              dealId,
+              to: 'DECLINED',
+              actor: 'CLIENT_HUMAN',
+              reason,
+              patch: { closedReason: reason },
+            },
+            tx,
+          );
+        }
+        const amount = reply.amountEarly;
+        if (amount <= 0n || amount > current.amountEarly) {
+          throw new AppError('VALIDATION_FAILED', 'Choose an amount up to the offer', {
+            issues: [
+              { path: 'amountEarly', message: `At most ${formatMoney(current.amountEarly)}` },
+            ],
+          });
+        }
+        if (deal.round >= MAX_NEGOTIATION_ROUNDS)
+          throw conflict('No more counters on this offer; accept or decline');
+        const terms: Terms = {
+          ...current,
+          amountEarly: amount,
+          remainderDue: amount < ctx.supplierView.invoiceDue ? ctx.supplierView.dueDate : null,
+        };
+        const round = deal.round + 1;
+        const expiresAt = new Date(this.now().getTime() + OFFER_TTL_MS);
+        const reason = `Can pay ${formatMoney(amount)} early`;
+        await this.message(tx, ctx, {
+          from: 'client',
+          actor: 'CLIENT_HUMAN',
+          type: 'COUNTER',
+          terms,
+          round,
+          note: this.note('COUNTER', terms, ctx, reason),
+          checks: [],
+          expiresAt,
+        });
+        return this.deals.transition(
+          {
+            dealId,
+            to: 'COUNTERED',
+            actor: 'CLIENT_HUMAN',
+            reason,
+            patch: { currentTerms: termsToWire(terms), round, expiresAt },
           },
           tx,
         );

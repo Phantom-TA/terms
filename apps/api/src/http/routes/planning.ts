@@ -101,6 +101,7 @@ export function registerPlanningRoutes(router: Router, s: Services): void {
     );
     await publishPlan(plan, session.businessId);
     await s.publishDeals(plan.items.flatMap((i) => (i.dealId === null ? [] : [i.dealId])));
+    s.runner.kick(plan.id); // execution starts: offers, reminders, payments
     return { plan };
   });
 
