@@ -67,7 +67,10 @@ vaultCancel: () => '/client/vault/cancel',
 
 ## CR-5: charting a what-if in Cash Studio, and what the strategist's model is sent
 
-**Status:** open. The web side is built and tested against a mock of `POST /api/studio/turn`.
+**Status:** answered by A.
+
+- **Item 1:** `scenario: { label, points } | null` is coming in `contracts-v4`. It holds the runway under the last `simulate_discount_cap` in the turn; `afterBestEffort` equals `afterCommitted`; it is null when there was no what-if or no balance; it isn't carried between turns. The web app has the empty `scenario` table ready (W-054) and will fill it when v4 is tagged.
+- **Item 2:** the route's body limit is now 1 MB, with 256 KB for the tool definitions together, and a tool result over 32 KB is replaced by `{ truncated, bytes, note, preview }`. The 18 KB is in `inputSchema`, not `description`: every description is under 1000 characters (the longest is 567). A longer one would be kept whole in the schema (W-056).
 
 1. **What-if figures can't be charted.** `simulate_discount_cap` runs on the server, and its result reaches only the model. Studio's widgets can chart only the tables the browser gave Studio, and the browser must not work out payment outcomes. So "What if I cap discounts at 1.0%?" can be answered in words but not drawn. A suggestion; please pick whichever suits the server:
 
