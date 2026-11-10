@@ -1,0 +1,67 @@
+# Render blueprint (docs/deploy.md): one web service that serves the API and the built web app,
+# and its Postgres database. Paid instances, so the service does not sleep during judging.
+databases:
+  - name: terms-db
+    databaseName: terms
+    user: terms
+    plan: basic-256mb
+    postgresMajorVersion: '17'
+
+services:
+  - type: web
+    name: terms
+    runtime: node
+    plan: starter
+    # Deploys develop while the demo is tested end to end; switch to main for the release.
+    branch: develop
+    autoDeploy: false
+    # pnpm comes from the packageManager field; dev dependencies are needed to build.
+    buildCommand: corepack enable pnpm && pnpm install --frozen-lockfile --production=false && pnpm build:prod
+    # Applies new Prisma migrations before the new version starts taking traffic.
+    preDeployCommand: pnpm db:deploy
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: terms-db
+          property: connectionString
+      # The service's public URL, e.g. https://terms.onrender.com (offer links and PayPal return URLs).
+      - key: APP_BASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: OFFER_TOKEN_SECRET
+        generateValue: true
+      - key: LOG_LEVEL
+        value: info
+      # PayPal sandbox app (owned by the Maya Studio business account).
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      # From `pnpm webhook:register <APP_BASE_URL>` after the first deploy.
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      # AI (optional: without a key every role falls back to its deterministic mode).
+      - key: LLM_PROVIDER
+        value: anthropic
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: claude-sonnet-5-5
+      - key: LLM_MODEL_FAST
+        value: claude-haiku-5-5
+      - key: AI_MODE
+        value: live
+      - key: AI_NEGOTIATION
+        value: ai
+      # Read by the web build (AG Grid and AG Studio licence keys are designed to be public).
+      - key: VITE_AG_GRID_LICENSE_KEY
+        sync: false
+      - key: VITE_AG_STUDIO_LICENSE_KEY
+        sync: false
