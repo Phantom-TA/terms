@@ -1,4 +1,4 @@
-import { type BusinessRole } from '@terms/shared';
+import { type BusinessRole, webPaths } from '@terms/shared';
 
 export interface ScreenDef {
   path: string;
@@ -59,14 +59,14 @@ export const screens: readonly ScreenDef[] = [
   },
   // Where PayPal sends a person back after saving a payment method.
   {
-    path: '/client/vault/return',
+    path: webPaths.vaultReturn(),
     label: 'Saving your PayPal method',
     roles: ['CLIENT'],
     load: () => import('../screens/payables/VaultReturn'),
     hidden: true,
   },
   {
-    path: '/client/vault/cancel',
+    path: webPaths.vaultCancel(),
     label: 'Nothing was saved',
     roles: ['CLIENT'],
     load: () => import('../screens/payables/VaultCancel'),

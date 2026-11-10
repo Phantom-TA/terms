@@ -144,12 +144,28 @@ const isOffer = (item: PlanItemView) => item.action !== 'NONE' && item.action !=
 /** The API's 400 for an action that doesn't fit the amount. */
 export class ShapeError extends Error {}
 
+/**
+ * A move that came from one side's policy: as on the server, `reason` in the history is that
+ * side's real reason, and the other side reads `publicReason` instead.
+ */
+export interface PrivateReason {
+  side: 'SUPPLIER' | 'CLIENT';
+  publicReason: string;
+}
+
+/** The server's neutral reasons for a move the other side made. */
+const COUNTERED = 'Countered';
+const DECLINED = 'Declined';
+const WAITING_FOR_SUPPLIER = 'Waiting for the supplier';
+
 export class MockWorld {
   goal: Goal | null = null;
   plan: Plan | null = null;
   readonly deals = new Map<string, DealSummary>();
   readonly messages = new Map<string, NegotiationMessage[]>();
   readonly history = new Map<string, DealTransition[]>();
+  /** The steps whose reason only one side reads. */
+  readonly privateReasons = new WeakMap<DealTransition, PrivateReason>();
   readonly approvals = new Map<string, ApprovalView>();
   readonly auditLog: AuditEntry[] = [];
   private eventSeq = 0;
@@ -656,11 +672,14 @@ export class MockWorld {
     actor: Actor,
     reason: string,
     patch: Partial<DealSummary> = {},
+    privateTo: PrivateReason | null = null,
   ): ServerEvent {
     const deal = this.deals.get(itemId) ?? bad(`No deal for ${itemId}`);
     const steps = this.history.get(deal.id) ?? [];
-    steps.push({ from: deal.state, to: state, actor, reason, at: this.stamp() });
+    const step: DealTransition = { from: deal.state, to: state, actor, reason, at: this.stamp() };
+    steps.push(step);
     this.history.set(deal.id, steps);
+    if (privateTo) this.privateReasons.set(step, privateTo);
     const next: DealSummary = {
       ...deal,
       ...patch,
@@ -677,7 +696,9 @@ export class MockWorld {
       deal.id,
       deal.id,
     );
-    entry.details = { reason };
+    entry.details = privateTo
+      ? { reason, privateTo: privateTo.side, publicReason: privateTo.publicReason }
+      : { reason };
     return this.event('deal.updated', { deal: next });
   }
 
@@ -968,20 +989,22 @@ export class MockWorld {
           'COUNTER',
           counterTerms,
           'We could pay early at 1.5%.',
-          [checkHurdleRate(harborBps, harborSpec.dueInDays, 1500), checkMaxDiscount(150, maxBps)],
+          // A message carries only its sender's checks; the owner's are in the approval.
+          [checkHurdleRate(harborBps, harborSpec.dueInDays, 1500)],
           1,
         ),
         this.moveDeal(
           'item_inv_harbor',
           'COUNTERED',
           'CLIENT_AGENT',
-          'Harbor countered at 1.50%.',
+          '0.80% is under our 15% hurdle, so we asked for 1.50%.',
           {
             currentTerms: counterTerms,
             impliedAnnualRate: impliedAnnualRate(150, harborSpec.dueInDays),
             cost: fromCents(discountOn(harborEarly, 150)),
             committedIfAgreed: fromCents(harborEarly - discountOn(harborEarly, 150)),
           },
+          { side: 'CLIENT', publicReason: COUNTERED },
         ),
         this.moveDeal(
           'item_inv_harbor',
@@ -989,6 +1012,7 @@ export class MockWorld {
           'SUPPLIER_AGENT',
           'The counter that fits your maximum goes over your ceiling.',
           { pendingApprovalId: approval.id, round: 1 },
+          { side: 'SUPPLIER', publicReason: WAITING_FOR_SUPPLIER },
         ),
         this.event('approval.requested', { approval }),
       );
@@ -1044,14 +1068,19 @@ export class MockWorld {
           'supplier',
           'WITHDRAW',
           null,
-          'We can’t go that far on this invoice, so we’ll leave it on its original terms.',
+          `We’ll leave invoice ${deal.invoiceNumber} on its original terms.`,
           [],
           2,
         ),
-        this.moveDeal(deal.planItemId, 'DECLINED', 'OWNER', 'You rejected the counter.', {
-          pendingApprovalId: null,
-          closedReason: 'You rejected the counter.',
-        }),
+        this.moveDeal(
+          deal.planItemId,
+          'DECLINED',
+          'OWNER',
+          'You rejected the counter.',
+          // The reason both sides read; the owner's own is in its history.
+          { pendingApprovalId: null, closedReason: DECLINED },
+          { side: 'SUPPLIER', publicReason: DECLINED },
+        ),
         ...this.refreshed(),
       );
       return { approval, events };
@@ -1080,7 +1109,7 @@ export class MockWorld {
         'supplier',
         'COUNTER',
         terms,
-        'The most we can do is 1.2%, for $1,729 today.',
+        'We can do 1.2%, for $1,729 today.',
         [checkMaxDiscount(bps, bps), checkCostCeiling(costAfter, toCents(plan.costCeiling))],
         2,
       ),
@@ -1097,6 +1126,7 @@ export class MockWorld {
           committedIfAgreed: fromCents(early - cost),
           impliedAnnualRate: impliedAnnualRate(bps, s.dueInDays),
         },
+        { side: 'SUPPLIER', publicReason: COUNTERED },
       ),
       this.say(
         deal,

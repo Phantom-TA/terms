@@ -280,8 +280,11 @@ describe('the demo negotiation', () => {
     expect(world.dealDetail('deal_harbor')).toMatchObject({
       state: 'DECLINED',
       pendingApprovalId: null,
-      closedReason: 'You rejected the counter.',
+      closedReason: 'Declined',
     });
+    expect(world.dealDetail('deal_harbor')?.history.at(-1)?.reason).toBe(
+      'You rejected the counter.',
+    );
     expect(world.plan?.summary.committed).toBe('4960.00');
   });
 

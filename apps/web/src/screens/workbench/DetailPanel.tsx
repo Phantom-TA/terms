@@ -3,6 +3,7 @@ import { type CustomCellRendererProps } from 'ag-grid-react';
 import { Link } from 'react-router-dom';
 import { formatDateTime, formatPercent } from '../../lib/display';
 import { ErrorState } from '../../ui/ErrorState';
+import { closingReason } from '../negotiation/closingReason';
 import { Money, PolicyBadges, ProtectedTag } from '../../ui/finance';
 import { Skeleton } from '../../ui/Skeleton';
 import { useDeal } from './queries';
@@ -93,7 +94,9 @@ function TranscriptBody({ deal }: { deal: DealDetail }) {
           ))}
         </ul>
       )}
-      {deal.closedReason ? <p className="text-sm text-ink-2">Closed: {deal.closedReason}</p> : null}
+      {closingReason(deal) ? (
+        <p className="text-sm text-ink-2">Closed: {closingReason(deal)}</p>
+      ) : null}
       <ol aria-label="Deal history" className="space-y-0.5 text-xs text-ink-3">
         {deal.history.map((step) => (
           <li key={`${step.to}-${step.at}`}>

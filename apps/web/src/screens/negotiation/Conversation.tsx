@@ -10,6 +10,7 @@ import { SkeletonRows } from '../../ui/Skeleton';
 import { useDeal } from '../workbench/queries';
 import { ApprovalCard } from '../approvals/ApprovalCard';
 import { isSupplierMessage, MessageCard } from './MessageCard';
+import { closingReason } from './closingReason';
 import { SettlementSteps } from './SettlementSteps';
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -28,6 +29,7 @@ function termsLabel(deal: DealDetail): string {
 }
 
 function DealHeader({ deal }: { deal: DealDetail }) {
+  const reason = closingReason(deal);
   const terms = deal.agreedTerms ?? deal.currentTerms;
   const closedWithoutCash = isFinal(deal.state) && !deal.countsAsCommitted;
   return (
@@ -57,7 +59,7 @@ function DealHeader({ deal }: { deal: DealDetail }) {
           </>
         )}
       </dl>
-      {deal.closedReason ? <p className="text-base text-ink-2">{deal.closedReason}</p> : null}
+      {reason ? <p className="text-base text-ink-2">{reason}</p> : null}
     </header>
   );
 }
