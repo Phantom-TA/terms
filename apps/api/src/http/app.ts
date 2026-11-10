@@ -14,6 +14,9 @@ import { registerRoutes } from './routes/index.js';
 import { ContractError } from './route.js';
 
 /** Request ids, kept beside the request rather than on it. */
+/** The Cash Studio's request body limit: the browser's tool definitions are tens of KB. */
+export const STUDIO_BODY_LIMIT = '1mb';
+
 const requestIds = new WeakMap<Request, string>();
 export const requestIdOf = (req: Request): string | undefined => requestIds.get(req);
 
@@ -78,6 +81,9 @@ export function createApp(services: Services, options: AppOptions = {}): express
   });
 
   app.use(paths.paypalWebhook(), express.raw({ type: () => true, limit: '1mb' }));
+  // The Cash Studio sends the browser's tool definitions (tens of KB of JSON Schema) and tool results
+  // every turn, so its route has a larger limit; the first parser to run decides, so this is first.
+  app.use(paths.studioTurn(), express.json({ limit: STUDIO_BODY_LIMIT }));
   app.use('/api', express.json({ limit: '100kb' }));
 
   const api = express.Router();

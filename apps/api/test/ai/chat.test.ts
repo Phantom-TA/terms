@@ -249,3 +249,40 @@ describe('recorded turns', () => {
     expect(buildAiChat({ ...llm(), mode: 'record' })).toBeInstanceOf(RecordingChat);
   });
 });
+
+describe('a what-if scenario from a tool', () => {
+  const scenario = { label: 'Discounts capped at 1.00%', points: [] };
+  const withScenario = serverTool(() =>
+    Promise.resolve({ output: { ok: true }, summary: 'what-if', scenario }),
+  );
+
+  it('is carried out of the turn, and recorded with it', async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: [call('c1', 'get_plan_summary', {}), text('Capped at 1%, you commit less.')],
+    });
+    const result = await new LiveChat(llm(), { model: () => model }).turn(
+      input({ serverTools: [withScenario] }),
+    );
+    expect(result.scenario).toEqual(scenario);
+
+    const store = new FixtureStore(mkdtempSync(join(tmpdir(), 'terms-chat-')));
+    const recording = new RecordingChat(
+      new LiveChat(llm(), {
+        model: () =>
+          new MockLanguageModelV4({
+            doGenerate: [call('c1', 'get_plan_summary', {}), text('Done.')],
+          }),
+      }),
+      store,
+    );
+    await recording.turn(input({ serverTools: [withScenario] }));
+    const replayed = await new ReplayChat(store).turn(input({ serverTools: [withScenario] }));
+    expect(replayed.scenario).toEqual(scenario);
+  });
+
+  it('is absent when no tool produced one', async () => {
+    const model = new MockLanguageModelV4({ doGenerate: [text('Hello.')] });
+    const result = await new LiveChat(llm(), { model: () => model }).turn(input());
+    expect('scenario' in result).toBe(false);
+  });
+});

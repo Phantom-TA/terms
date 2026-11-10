@@ -32,6 +32,11 @@ const runway = (days: number): RunwayResponse => ({
   })),
 });
 
+const scenario = {
+  label: 'Discounts capped at 1.50%',
+  points: [point(1, 5200), point(2, 5100)],
+};
+
 const sim: CapSimulation = {
   maxDiscountPct: '1.50',
   target: '6510.00',
@@ -44,6 +49,7 @@ const sim: CapSimulation = {
     action: 'NEGOTIATE',
     discountPct: '1.50',
     amountEarly: '1000.00',
+    payBy: '2026-11-09',
     cost: '15.00',
     committedIfAgreed: '985.00',
   })),
@@ -108,7 +114,7 @@ function fakeData(over: Partial<StudioData> = {}): StudioData & { asked: unknown
       }),
     simulate: (bps) => {
       asked.push(bps);
-      return Promise.resolve(sim);
+      return Promise.resolve({ simulation: sim, scenario });
     },
     ...over,
   };
@@ -195,6 +201,15 @@ describe('the studio data tools', () => {
     expect(data.asked).toEqual([150]);
     expect((result.output as { offers: unknown[] }).offers).toHaveLength(25);
     expect(result.summary).toBe('at 1.50%: commits $6,600.00 for $70.00');
+    // The what-if runway travels beside the result, for the browser to chart; the model is told it exists.
+    expect(result.scenario).toEqual(scenario);
+    expect(result.output).toMatchObject({ scenarioTableAvailable: true });
+    const noBalance = await tool(
+      'simulate_discount_cap',
+      fakeData({ simulate: () => Promise.resolve({ simulation: sim, scenario: null }) }),
+    ).run({ maxDiscountPct: '1.5' });
+    expect(noBalance.scenario).toBeUndefined();
+    expect(noBalance.output).toMatchObject({ scenarioTableAvailable: false });
     for (const bad of ['0', '0.00', '25', 'abc', '']) {
       await expect(
         tool('simulate_discount_cap', data).run({ maxDiscountPct: bad }),
@@ -208,7 +223,10 @@ describe('the studio data tools', () => {
     ).rejects.toThrow('no current goal');
     const short = await tool(
       'simulate_discount_cap',
-      fakeData({ simulate: () => Promise.resolve({ ...sim, shortfall: true }) }),
+      fakeData({
+        simulate: () =>
+          Promise.resolve({ simulation: { ...sim, shortfall: true }, scenario: null }),
+      }),
     ).run({ maxDiscountPct: '1.5' });
     expect(short.summary).toContain('(short of the target)');
   });

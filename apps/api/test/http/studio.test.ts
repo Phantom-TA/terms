@@ -1,4 +1,10 @@
-import { ApiErrorBody, GoalResponse, PlanResponse, StudioTurnResponse } from '@terms/shared';
+import {
+  ApiErrorBody,
+  GoalResponse,
+  PlanResponse,
+  RunwayResponse,
+  StudioTurnResponse,
+} from '@terms/shared';
 import type express from 'express';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -34,6 +40,7 @@ class LookingChat implements AiChat {
   readonly inputs: ChatInput[] = [];
   readonly outputs: Record<string, unknown> = {};
   readonly failures: Record<string, string> = {};
+  scenario: ChatResult['scenario'];
 
   constructor(private readonly ask: Record<string, unknown>[] = []) {}
 
@@ -52,6 +59,7 @@ class LookingChat implements AiChat {
       if (tool === undefined) throw new Error(`no tool ${name}`);
       try {
         const result = await tool.run(args);
+        if (result.scenario !== undefined) this.scenario = result.scenario;
         this.outputs[name] = result.output;
         trace.push({ name, input: args, resultSummary: result.summary });
       } catch (err) {
@@ -63,6 +71,7 @@ class LookingChat implements AiChat {
       content: 'Here is what I see.',
       toolCalls: this.ask.map((a, i) => ({ id: `call-${String(i)}`, name: 'add_chart', input: a })),
       serverToolCalls: trace,
+      ...(this.scenario === undefined ? {} : { scenario: this.scenario }),
     };
   }
 }
@@ -315,5 +324,96 @@ describe('POST /api/studio/turn', () => {
     ]);
     // Newest first, and nothing from before the window.
     expect(history.recent.map((e) => e.label)).toEqual(['Movement 3', 'Movement 2', 'Movement 1']);
+  });
+
+  it('returns the what-if runway for the screen to chart beside the real one (CR-5)', async () => {
+    await db.payPalAccount.create({
+      data: {
+        businessId: ids.maya,
+        balanceCents: 520_000n,
+        balanceCurrency: 'USD',
+        balanceSource: 'PAYPAL_BALANCES',
+        balanceAsOf: new Date('2026-11-09T13:29:59Z'),
+      },
+    });
+    const chat = new LookingChat();
+    const { app } = testApp(db, { now, noPayPal: true, aiChat: chat });
+    const maya = await signedIn(app, ids.maya);
+    await demoGoalAndPlan(maya);
+
+    const res = StudioTurnResponse.parse(
+      (await maya.post('/api/studio/turn').send(turn).expect(200)).body,
+    );
+    const real = RunwayResponse.parse((await maya.get('/api/runway').expect(200)).body);
+    expect(res.scenario?.label).toBe('Discounts capped at 1.50%');
+    const points = res.scenario?.points ?? [];
+    expect(points).toHaveLength(real.points.length);
+    expect(points[0]?.date).toBe(real.today);
+    // The same cash and obligations to start with; only the plan differs.
+    expect(points.map((p) => p.before)).toEqual(real.points.map((p) => p.before));
+    expect(points.map((p) => p.afterCommitted)).toEqual(real.points.map((p) => p.before));
+    // The what-if's offers bring cash in on their pay-by dates.
+    const last = points[points.length - 1];
+    expect(Number(last?.afterPlanned)).toBeGreaterThan(Number(last?.before));
+    // The model was told it can chart it.
+    expect(chat.outputs['simulate_discount_cap']).toMatchObject({ scenarioTableAvailable: true });
+  });
+
+  it('has no scenario without a PayPal balance to start from, and says so to the model', async () => {
+    const chat = new LookingChat();
+    const { app } = testApp(db, { now, noPayPal: true, aiChat: chat });
+    const maya = await signedIn(app, ids.maya);
+    await demoGoalAndPlan(maya);
+    const res = StudioTurnResponse.parse(
+      (await maya.post('/api/studio/turn').send(turn).expect(200)).body,
+    );
+    expect(res.scenario).toBeNull();
+    expect(chat.outputs['simulate_discount_cap']).toMatchObject({
+      maxDiscountPct: '1.50',
+      scenarioTableAvailable: false,
+    });
+  });
+
+  it('accepts the browser’s large tool definitions, and keeps the small limit on other routes', async () => {
+    const quick: AiChat = {
+      turn: (input) => {
+        expect(input.clientTools).toHaveLength(3);
+        return Promise.resolve({ content: 'ok', toolCalls: [], serverToolCalls: [] });
+      },
+    };
+    const { app } = testApp(db, { now, noPayPal: true, aiChat: quick });
+    const maya = await signedIn(app, ids.maya);
+    const blob = 'x'.repeat(70_000);
+    const big = {
+      ...turn,
+      clientTools: ['a', 'b', 'c'].map((n) => ({
+        name: `tool_${n}`,
+        description: 'A widget action.',
+        inputSchema: { $defs: { blob } },
+      })),
+    };
+    expect(JSON.stringify(big).length).toBeGreaterThan(200_000); // twice the 100 KB default, under the 256 KB cap
+    await maya.post('/api/studio/turn').send(big).expect(200);
+
+    // Over the Studio's own limit is refused as too large, and no other route got the larger one.
+    const tooLarge = (res: { body: unknown }) => {
+      expect(errorCode(res.body)).toBe('VALIDATION_FAILED');
+      expect(ApiErrorBody.parse(res.body).error.message).toBe('Request body too large');
+    };
+    tooLarge(
+      await maya
+        .post('/api/studio/turn')
+        .send({
+          ...turn,
+          clientTools: [{ ...big.clientTools[0], inputSchema: { blob: 'x'.repeat(1_100_000) } }],
+        })
+        .expect(400),
+    );
+    tooLarge(
+      await maya
+        .post('/api/goals')
+        .send({ text: 'y'.repeat(150_000) })
+        .expect(400),
+    );
   });
 });

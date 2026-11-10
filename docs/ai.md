@@ -181,7 +181,12 @@ rejects a browser tool that shadows a server tool, repeats a name or is oversize
 that answers no call the assistant made; it drops a model call to any undeclared tool. The model cannot
 approve, send, pay or change anything because no tool it has can. Each turn writes a `STUDIO_TURN` audit
 entry (counts and tool names, not the conversation). `simulate_discount_cap` runs the planner with a
-different maximum discount and saves nothing.
+different maximum discount and saves nothing; its result also becomes the turn's `scenario` (the runway
+under that what-if, worked out on the server from the real balance and confirmed flows), because the
+browser can chart only data it has and must not work out payment outcomes. The model is told how to use
+screen tools: look at a schema tool such as `view_schema` first, use only identifiers it lists, and expect
+to build in several calls. Tool results over 32 KB reach it as a short preview, and the model's context is
+the limit on how large the browser's tool definitions can be (256 KB cap, about 60k tokens).
 
 ### Recording and replaying (no key needed)
 

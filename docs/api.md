@@ -145,6 +145,18 @@ These are what the API actually does, beyond the schemas (all routes are live on
   `message.toolCalls`; run them and send `tool` messages back until `done` is true. A tool name that
   shadows a server tool, a repeat name, oversized tool definitions, or a `tool` message that answers no
   call the assistant made answer 400 `VALIDATION_FAILED`.
+- **What-if charts (contracts-v4):** after `simulate_discount_cap` succeeds, the turn's `scenario` is
+  the runway as if the plan were the what-if's: its offers as open deals on their pay-by dates,
+  starting from the same balance and confirmed flows. `afterCommitted` is therefore the same as
+  `before`, and reminders are left out, so `afterBestEffort` equals `afterCommitted`. The model is told
+  the cash line is on the screen as a table named `scenario` (same fields as `runway`) when
+  `scenarioTableAvailable` is true in the tool result.
+- **Request size (Studio only):** `POST /api/studio/turn` accepts bodies up to 1 MB (every other route
+  keeps 100 KB); the browser's tool definitions together may be up to 256 KB. A tool's `description` is
+  still at most 1000 characters (the schema goes in `inputSchema`, which has no per-tool limit). A `tool`
+  message whose `output` is over 32 KB reaches the model as
+  `{ truncated: true, bytes, note, preview }` instead of failing, so send fewer rows or fields. A body
+  over the limit answers 400 `VALIDATION_FAILED` "Request body too large", like every route.
 - **Cash history labels:** after a sync, transactions PayPal's code left unclassified may have a kind and
   label from the AI labeller; it never marks anything as a recurring flow.
 - **Offer links for clients without an agent** are recorded in the audit trail as
@@ -182,6 +194,13 @@ supplier`). The side that made the move reads the real reason in `DealDetail.his
 
 ## Changelog
 
+- **contracts-v4** (2026-11-11), from Developer B's CR-5:
+  - `StudioTurnResponse.scenario` (optional, nullable): the runway under the last `simulate_discount_cap`
+    the server ran in the turn, as `{ label, points }` with the same `RunwayPoint`s as `GET /api/runway`,
+    so the browser can chart `afterPlanned` here against the real runway's. Null when no what-if ran in
+    the turn or there is no PayPal balance to start from. Not carried between turns: keep the last one.
+    A turn without the field is still valid.
+  - No other schema changes. `CONTRACTS_VERSION` is 4.
 - **contracts-v3** (2026-11-10), from Developer B's CR-4:
   - `webPaths.vaultReturn()` (`/client/vault/return`) and `webPaths.vaultCancel()`
     (`/client/vault/cancel`), the pages PayPal returns a person to after saving, or not saving, a

@@ -9,6 +9,7 @@ import {
   percentToBps,
   type PlanSummary,
   type RunwayResponse,
+  type StudioScenario,
   type StudioServerTool,
 } from '@terms/shared';
 import { z } from 'zod';
@@ -60,8 +61,13 @@ export interface StudioData {
   runway(horizonDays: number): Promise<RunwayResponse>;
   plan(): Promise<StudioPlan>;
   cashHistory(days: number): Promise<StudioHistory>;
-  /** Null when the owner has no goal to plan for. */
-  simulate(maxDiscountBps: number): Promise<CapSimulation | null>;
+  /**
+   * Null when the owner has no goal to plan for. The scenario is the runway under the what-if, or
+   * null when there is no PayPal balance to start it from.
+   */
+  simulate(
+    maxDiscountBps: number,
+  ): Promise<{ simulation: CapSimulation; scenario: StudioScenario | null } | null>;
 }
 
 /** Rows kept in a result: enough to reason over, never the whole database. */
@@ -200,7 +206,8 @@ export function buildStudioTools(data: StudioData): ChatServerTool[] {
       name: 'simulate_discount_cap',
       description:
         'What the planner would do if the most you offered as a discount were different. ' +
-        'Read-only: nothing is saved or changed.',
+        'Read-only: nothing is saved or changed. When it succeeds, the what-if cash line is ' +
+        'available to the screen as a table named scenario, with the same fields as the runway.',
       input: SimulateInput,
       run: async (raw) => {
         const { maxDiscountPct } = SimulateInput.parse(raw);
@@ -208,10 +215,17 @@ export function buildStudioTools(data: StudioData): ChatServerTool[] {
         const bps = normal === null ? 0 : percentToBps(normal);
         if (bps <= 0 || bps > 2000)
           throw new Error('The discount must be above 0% and at most 20%');
-        const sim = await data.simulate(bps);
-        if (sim === null) throw new Error('There is no current goal to simulate');
+        const found = await data.simulate(bps);
+        if (found === null) throw new Error('There is no current goal to simulate');
+        const { simulation: sim, scenario } = found;
         return {
-          output: { ...sim, offers: sim.offers.slice(0, MAX_ROWS) },
+          output: {
+            ...sim,
+            offers: sim.offers.slice(0, MAX_ROWS),
+            // Whether the what-if cash line is now on the owner's screen to chart.
+            scenarioTableAvailable: scenario !== null,
+          },
+          ...(scenario === null ? {} : { scenario }),
           summary: `at ${sim.maxDiscountPct}%: commits ${formatMoney(sim.plannedCommitted)} for ${formatMoney(sim.plannedCost)}${sim.shortfall ? ' (short of the target)' : ''}`,
         };
       },

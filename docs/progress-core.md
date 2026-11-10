@@ -55,17 +55,18 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 
 ## Phase 4: AI and negotiation
 
-| Feature                                                              | Status      | Evidence                                                                                                                 |
-| -------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Default negotiation strategies (deterministic mode)                  | PASS        | `apps/api/test/negotiation/strategies.test.ts`: demo flow move by move, property tests                                   |
-| Negotiation simulator: 0 policy violations in 50 runs                | PASS        | `scripts/simulate-negotiations.ts`: 50 runs 0 violations; 1,000 runs 0 violations (docs/ai.md)                           |
-| Negotiation engine (messages, rounds, NEEDS_OWNER, client approvals) | PASS        | `apps/api/test/negotiation/engine.test.ts`: full demo on Postgres, guards refuse bad moves                               |
-| AI runner: live, record and replay behind one interface              | PASS        | `apps/api/test/ai/runner.test.ts`, `chat.test.ts` (real SDK tool loop on the SDK's mock model)                           |
-| Goal parser and reply parser (with fallbacks and bounds)             | PASS        | `ai/goal-role.test.ts`, `ai/reply-role.test.ts`, `http/goals-ai.test.ts`, `http/offers.test.ts`                          |
-| LLM negotiators and message writer: a model cannot break a limit     | PASS        | `ai/negotiator-role.test.ts`: random answers on the real engine, 300 cases twice; `ai/note-role.test.ts`                 |
-| Plan explainer and flow labeller                                     | PASS        | `ai/explainer-role.test.ts`, `plans/plan-explainer.test.ts`, `ai/labeller-role.test.ts`, `paypal/sync-labelling.test.ts` |
-| Cash Studio strategist (`POST /api/studio/turn`)                     | PASS        | `ai/studio-*.test.ts`, `http/studio.test.ts`: real data, scoping, validation, audit, rate limit                          |
-| Against a real model (live and recorded fixtures)                    | Not started | Needs `LLM_API_KEY`; everything above is tested with the SDK's mock model and scripted answers                           |
+| Feature                                                                            | Status      | Evidence                                                                                                                 |
+| ---------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Default negotiation strategies (deterministic mode)                                | PASS        | `apps/api/test/negotiation/strategies.test.ts`: demo flow move by move, property tests                                   |
+| Negotiation simulator: 0 policy violations in 50 runs                              | PASS        | `scripts/simulate-negotiations.ts`: 50 runs 0 violations; 1,000 runs 0 violations (docs/ai.md)                           |
+| Negotiation engine (messages, rounds, NEEDS_OWNER, client approvals)               | PASS        | `apps/api/test/negotiation/engine.test.ts`: full demo on Postgres, guards refuse bad moves                               |
+| AI runner: live, record and replay behind one interface                            | PASS        | `apps/api/test/ai/runner.test.ts`, `chat.test.ts` (real SDK tool loop on the SDK's mock model)                           |
+| Goal parser and reply parser (with fallbacks and bounds)                           | PASS        | `ai/goal-role.test.ts`, `ai/reply-role.test.ts`, `http/goals-ai.test.ts`, `http/offers.test.ts`                          |
+| LLM negotiators and message writer: a model cannot break a limit                   | PASS        | `ai/negotiator-role.test.ts`: random answers on the real engine, 300 cases twice; `ai/note-role.test.ts`                 |
+| Plan explainer and flow labeller                                                   | PASS        | `ai/explainer-role.test.ts`, `plans/plan-explainer.test.ts`, `ai/labeller-role.test.ts`, `paypal/sync-labelling.test.ts` |
+| CR-5 what-if `scenario`; larger Studio body limit; oversize tool results truncated | PASS        | `http/studio.test.ts` (real data, limits), `ai/studio-role.test.ts`, shared `StudioTurnResponse` tests                   |
+| Cash Studio strategist (`POST /api/studio/turn`)                                   | PASS        | `ai/studio-*.test.ts`, `http/studio.test.ts`: real data, scoping, validation, audit, rate limit                          |
+| Against a real model (live and recorded fixtures)                                  | Not started | Needs `LLM_API_KEY`; everything above is tested with the SDK's mock model and scripted answers                           |
 
 ## Phase 6: API and live updates
 

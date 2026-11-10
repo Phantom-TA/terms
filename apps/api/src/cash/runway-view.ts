@@ -2,10 +2,17 @@
  * The cash runway for a supplier: the day-by-day balance before and after the plan's deals. Used by
  * the runway route and by the Cash Studio's data tool, so both read the same figures.
  */
-import { isoDateInTimeZone, NegotiationTerms, type RunwayResponse, toCents } from '@terms/shared';
+import {
+  isoDateInTimeZone,
+  NegotiationTerms,
+  type RunwayResponse,
+  type StudioScenario,
+  toCents,
+} from '@terms/shared';
 import { AppError, notFound } from '../errors.js';
 import { dateToIso } from '../mappers.js';
 import { type Services } from '../services.js';
+import { type CapSimulation } from '../plans/plan-service.js';
 import { computeRunway, type RunwayDeal, type RunwayFlow } from './runway.js';
 
 const COMMITTED = ['AGREED', 'INVOICE_UPDATED', 'AWAITING_PAYMENT'] as const;
@@ -15,6 +22,8 @@ export async function runwayFor(
   s: Pick<Services, 'db' | 'goals' | 'plans' | 'now'>,
   supplier: { id: string; timeZone: string },
   query: { planId?: string | undefined; horizonDays: number },
+  /** Instead of the plan's deals, these: the runway as if a what-if plan were the plan. */
+  whatIf?: { deals: readonly RunwayDeal[] },
 ): Promise<RunwayResponse> {
   const supplierId = supplier.id;
   const account = await s.db.payPalAccount.findUnique({ where: { businessId: supplierId } });
@@ -28,8 +37,8 @@ export async function runwayFor(
   }
   const today = isoDateInTimeZone(s.now(), supplier.timeZone);
   const current = await s.goals.current(supplierId);
-  let planId = query.planId ?? current?.planId ?? null;
-  if (query.planId !== undefined) {
+  let planId = whatIf === undefined ? (query.planId ?? current?.planId ?? null) : null;
+  if (query.planId !== undefined && whatIf === undefined) {
     const owned = await s.db.plan.findUnique({
       where: { id: query.planId },
       select: { goal: { select: { supplierId: true } } },
@@ -39,9 +48,11 @@ export async function runwayFor(
   }
   const plan = planId === null ? null : await s.plans.getView(planId, supplierId);
   const goal =
-    planId === null
-      ? null
-      : await s.db.goal.findFirst({ where: { plans: { some: { id: planId } } } });
+    whatIf !== undefined
+      ? (current?.goal ?? null)
+      : planId === null
+        ? null
+        : await s.db.goal.findFirst({ where: { plans: { some: { id: planId } } } });
 
   const recurring = await s.db.cashEvent.findMany({
     where: {
@@ -61,7 +72,7 @@ export async function runwayFor(
     planId === null
       ? []
       : await s.db.deal.findMany({ where: { planId }, include: { invoice: true, client: true } });
-  const deals: RunwayDeal[] = [];
+  const deals: RunwayDeal[] = [...(whatIf?.deals ?? [])];
   let confirmedSince = 0n;
   for (const d of rows) {
     const terms = NegotiationTerms.safeParse(d.agreedTerms ?? d.currentTerms);
@@ -102,4 +113,26 @@ export async function runwayFor(
     flows,
     deals,
   });
+}
+
+/**
+ * The runway as if the plan were the one a discount-cap what-if describes (CR-5): its offers as open
+ * deals on their pay-by dates. Reminders are left out, so the best-effort line equals the committed
+ * one. The same points as the real runway, ready to chart beside it.
+ */
+export async function scenarioRunway(
+  s: Pick<Services, 'db' | 'goals' | 'plans' | 'now'>,
+  supplier: { id: string; timeZone: string },
+  simulation: CapSimulation,
+  horizonDays: number,
+): Promise<StudioScenario> {
+  const today = isoDateInTimeZone(s.now(), supplier.timeZone);
+  const deals: RunwayDeal[] = simulation.offers.map((o) => ({
+    date: o.payBy ?? today,
+    amountCents: toCents(o.committedIfAgreed),
+    stage: 'OPEN',
+    label: `${o.client}, invoice ${o.invoiceNumber}`,
+  }));
+  const runway = await runwayFor(s, supplier, { horizonDays }, { deals });
+  return { label: `Discounts capped at ${simulation.maxDiscountPct}%`, points: runway.points };
 }

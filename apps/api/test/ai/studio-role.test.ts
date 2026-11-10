@@ -6,7 +6,9 @@ import {
   AiStudio,
   checkClientTools,
   checkMessages,
+  limitOutput,
   MAX_CLIENT_TOOLS_BYTES,
+  MAX_TOOL_OUTPUT_BYTES,
   STUDIO_MAX_STEPS,
   studioSystem,
 } from '../../src/ai/studio-role.js';
@@ -143,6 +145,7 @@ describe('AiStudio', () => {
     expect(response).toEqual({
       message: { role: 'assistant', content: 'Yes, with the plan.', toolCalls: [] },
       serverToolCalls: [],
+      scenario: null,
       done: true,
     });
     const sent = chat.inputs[0];
@@ -175,6 +178,7 @@ describe('AiStudio', () => {
       serverToolCalls: [
         { name: 'get_cash_runway', input: { horizonDays: 30 }, resultSummary: 'balance $5,200.00' },
       ],
+      scenario: null,
       done: false,
     });
   });
@@ -238,5 +242,89 @@ describe('AiStudio', () => {
     await expect(new AiStudio(chat).turn(request(), noData, ctx)).rejects.toBeInstanceOf(
       AiRoleError,
     );
+  });
+});
+
+describe('large tool results', () => {
+  it('passes a result through whole when it is small enough', () => {
+    const small = { success: true, data: [1, 2, 3] };
+    expect(limitOutput(small)).toBe(small);
+    expect(limitOutput(undefined)).toBeUndefined();
+    expect(limitOutput(null)).toBeNull();
+    const edge = 'x'.repeat(MAX_TOOL_OUTPUT_BYTES - 2); // two more for the quotes
+    expect(limitOutput(edge)).toBe(edge);
+  });
+
+  it('replaces a result that is too big with its size and the start of it', () => {
+    const big = { rows: Array.from({ length: 5000 }, (_, i) => ({ id: i, label: 'row' })) };
+    const limited = limitOutput(big) as {
+      truncated: boolean;
+      bytes: number;
+      note: string;
+      preview: string;
+    };
+    expect(limited.truncated).toBe(true);
+    expect(limited.bytes).toBe(JSON.stringify(big).length);
+    expect(limited.preview).toBe(JSON.stringify(big).slice(0, 4000));
+    expect(limited.note).toMatch(/too large/);
+    expect(JSON.stringify(limited).length).toBeLessThan(6000); // quotes in the preview are escaped
+  });
+
+  it('is applied to every tool message in the conversation', () => {
+    const messages = checkMessages([
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'c1', name: 'execute_query', input: {} }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'c1',
+        output: { data: 'y'.repeat(MAX_TOOL_OUTPUT_BYTES) },
+        isError: false,
+      },
+    ]);
+    expect(messages[2]).toMatchObject({ role: 'tool', output: { truncated: true } });
+  });
+
+  it('allows definitions of the size a real widget toolset has', () => {
+    const schema = { $defs: { blob: 'x'.repeat(60_000) } };
+    const tools = ['a', 'b', 'c'].map((n) => ({ ...grid, name: `tool_${n}`, inputSchema: schema }));
+    expect(checkClientTools(tools)).toHaveLength(3); // about 180 KB in all
+  });
+});
+
+describe('the what-if scenario in the response', () => {
+  const scenario = {
+    label: 'Discounts capped at 1.00%',
+    points: [
+      {
+        date: '2026-11-09',
+        before: '5200.00',
+        afterCommitted: '5200.00',
+        afterPlanned: '5300.00',
+        afterBestEffort: '5200.00',
+      },
+    ],
+  };
+
+  it('is null unless the server ran a what-if this turn, and passed through when it did', async () => {
+    const none = await new AiStudio(new FakeChat(answer())).turn(request(), noData, ctx);
+    expect(none.scenario).toBeNull();
+    const some = await new AiStudio(new FakeChat(answer({ scenario }))).turn(
+      request(),
+      noData,
+      ctx,
+    );
+    expect(some.scenario).toEqual(scenario);
+  });
+
+  it('is described to the model, along with how to use screen tools', () => {
+    const text = studioSystem(ctx, [grid]);
+    expect(text).toMatch(/table\s+named scenario/);
+    expect(text).toMatch(/view_schema/);
+    expect(text).toMatch(/use only the identifiers it gives/);
+    expect(text).toMatch(/add it, then set it up/);
   });
 });

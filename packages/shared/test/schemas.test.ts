@@ -15,7 +15,9 @@ import {
   PutSupplierPolicyRequest,
   SERVER_EVENT_TYPES,
   ServerEvent,
+  StudioScenario,
   StudioTurnRequest,
+  StudioTurnResponse,
   UpdateGoalRequest,
   UpdatePlanItemRequest,
   IsoDate,
@@ -284,6 +286,38 @@ describe('routes', () => {
     ]) {
       expect(registered.has(required), required).toBe(true);
     }
-    expect(CONTRACTS_VERSION).toBe(3);
+    expect(CONTRACTS_VERSION).toBe(4);
+  });
+});
+
+describe('StudioTurnResponse (CR-5)', () => {
+  const base = {
+    message: { role: 'assistant' as const, content: 'Here.', toolCalls: [] },
+    serverToolCalls: [],
+    done: true,
+  };
+  const point = {
+    date: '2026-11-09',
+    before: '5200.00',
+    afterCommitted: '5200.00',
+    afterPlanned: '5300.00',
+    afterBestEffort: '5200.00',
+  };
+
+  it('has an optional, nullable scenario, so a turn without one is still valid', () => {
+    expect(StudioTurnResponse.parse(base)).toEqual(base);
+    expect(StudioTurnResponse.parse({ ...base, scenario: null }).scenario).toBeNull();
+    const scenario = { label: 'Discounts capped at 1.00%', points: [point] };
+    expect(StudioTurnResponse.parse({ ...base, scenario }).scenario).toEqual(scenario);
+  });
+
+  it('holds a scenario to the runway’s own point shape', () => {
+    expect(
+      StudioScenario.safeParse({ label: 'x', points: [{ ...point, before: 'lots' }] }).success,
+    ).toBe(false);
+    expect(StudioScenario.safeParse({ label: 'x', points: [{ date: '2026-11-09' }] }).success).toBe(
+      false,
+    );
+    expect(StudioScenario.safeParse({ points: [point] }).success).toBe(false);
   });
 });
