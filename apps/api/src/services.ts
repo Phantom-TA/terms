@@ -21,6 +21,7 @@ import { PaymentService } from './paypal/payment-service.js';
 import { PayPalRestClient } from './paypal/rest-client.js';
 import { buildPayPalSdkClient } from './paypal/sdk-client.js';
 import { Settlement } from './paypal/settlement.js';
+import { SyncService } from './paypal/sync-service.js';
 import { VaultService } from './paypal/vault-service.js';
 import { WebhookService } from './paypal/webhook-service.js';
 import { WriteLedger } from './paypal/write-ledger.js';
@@ -33,6 +34,7 @@ export interface PayPalServices {
   payments: PaymentService;
   settlement: Settlement;
   webhooks: WebhookService;
+  sync: SyncService;
 }
 
 export interface Services {
@@ -99,6 +101,7 @@ export function buildServices(
       settlement,
       vault: new VaultService(db, sdk, ledger, audit, config.appBaseUrl),
       payments: new PaymentService(db, sdk, ledger, audit, deals, invoices, now),
+      sync: new SyncService(db, rest, sdk, audit, now),
       webhooks: new WebhookService(db, rest, ledger, audit, settlement, {
         webhookId: config.paypal.webhookId,
         ...(overrides.fetchCert === undefined ? {} : { fetchCert: overrides.fetchCert }),

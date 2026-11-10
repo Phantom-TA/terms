@@ -1,6 +1,7 @@
 /** Registers every route group on the API router. */
 import { type Router } from 'express';
 import { type Services } from '../../services.js';
+import { registerCashRoutes } from './cash.js';
 import { registerClientRoutes } from './client.js';
 import { registerGovernanceRoutes } from './governance.js';
 import { registerOfferRoutes } from './offers.js';
@@ -14,5 +15,6 @@ export function registerRoutes(router: Router, services: Services): void {
   registerPlanningRoutes(router, services);
   registerClientRoutes(router, services);
   registerOfferRoutes(router, services);
+  registerCashRoutes(router, services);
   registerStreamRoute(router, services);
 }
