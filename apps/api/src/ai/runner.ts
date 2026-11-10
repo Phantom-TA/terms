@@ -119,7 +119,8 @@ export class LiveRunner implements AiRunner {
   }
 }
 
-function classify(err: unknown, role: string): AiRoleError {
+/** A failure from the SDK or provider as one of ours. */
+export function classify(err: unknown, role: string): AiRoleError {
   if (err instanceof AiRoleError) return err;
   if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
     return new AiRoleError('timeout', role, `${role}: the model took too long`, { cause: err });
@@ -166,7 +167,10 @@ export class FixtureStore {
     }
   }
 
-  async write(call: RoleCall<unknown>, output: unknown): Promise<void> {
+  async write(
+    call: Pick<RoleCall<unknown>, 'role' | 'tier' | 'system' | 'prompt'>,
+    output: unknown,
+  ): Promise<void> {
     const file = this.file(call);
     await mkdir(dirname(file), { recursive: true });
     const fixture: Fixture = {

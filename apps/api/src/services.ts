@@ -4,7 +4,9 @@
  * test database and a fake PayPal.
  */
 import { type AiServices, buildAiServices } from './ai/index.js';
+import { type AiChat, buildAiChat } from './ai/chat.js';
 import { type AiRunner, buildAiRunner } from './ai/runner.js';
+import { AiStudio } from './ai/studio-role.js';
 import { ApprovalService } from './approvals/approval-service.js';
 import { AuditLogger } from './audit.js';
 import { type Config } from './config.js';
@@ -53,6 +55,8 @@ export interface Services {
   goals: GoalService;
   /** The AI roles, or null when no AI is configured (every role then has a fallback). */
   ai: AiServices | null;
+  /** The Cash Studio strategist; null without AI. */
+  studio: AiStudio | null;
   /** Fills plan rows' explanations in the background; null without AI. */
   explainer: PlanExplainer | null;
   engine: NegotiationEngine;
@@ -73,6 +77,8 @@ export interface ServiceOverrides {
   now?: () => Date;
   /** Test seam: the AI runner. Omitted: built from the configuration. Null: no AI at all. */
   aiRunner?: AiRunner | null;
+  /** Test seam: the AI chat for the Cash Studio. Omitted: built from the configuration. */
+  aiChat?: AiChat | null;
   /** Test seam: the fake PayPal transport for both the SDK and the REST client. */
   paypalFetch?: typeof globalThis.fetch;
   /** Test seam: PayPal's signing certificate for local webhook verification. */
@@ -94,6 +100,8 @@ export function buildServices(
     overrides.aiRunner === undefined ? buildAiRunner(config.llm, logger) : overrides.aiRunner,
     logger,
   );
+  const chat = overrides.aiChat === undefined ? buildAiChat(config.llm, logger) : overrides.aiChat;
+  const studio = chat === null ? null : new AiStudio(chat);
   const goals = new GoalService(db, audit, now, ai?.goals ?? null);
   const negotiateWithAi = ai !== null && config.llm.negotiation === 'ai';
   const engine = new NegotiationEngine(
@@ -219,6 +227,7 @@ export function buildServices(
     plans,
     goals,
     ai,
+    studio,
     explainer,
     engine,
     events,
