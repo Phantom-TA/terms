@@ -89,6 +89,10 @@ describe('Offer page', () => {
     expect(await screen.findByText(/Choose an amount from 500\.00/)).toBeInTheDocument();
     expect(amount).toHaveAttribute('aria-invalid', 'true');
     expect(screen.queryByRole('region', { name: 'Reply sent' })).not.toBeInTheDocument();
+    // Changing the amount never turns the refusal into a reply to send again as it was.
+    await userEvent.type(amount, '0');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });
 
   it('asks for an amount it can read before sending anything', async () => {

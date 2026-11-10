@@ -155,8 +155,10 @@ function OpenOffer({ token, offer, onReplied }: OpenOfferProps) {
   };
 
   const busy = reply.isPending;
-  const failure =
-    reply.isError && !(sent?.kind === 'PAY_PART' && partError !== null) ? reply.error : null;
+  // A part the server refused is explained next to the amount, never as a reply to retry as is.
+  const refusedPart =
+    sent?.kind === 'PAY_PART' && toApiError(reply.error).code === 'VALIDATION_FAILED';
+  const failure = reply.isError && !refusedPart ? reply.error : null;
 
   return (
     <>
@@ -222,6 +224,7 @@ function OpenOffer({ token, offer, onReplied }: OpenOfferProps) {
                   onChange={(e) => {
                     setPart(e.target.value);
                     setPartError(null);
+                    if (reply.isError) reply.reset();
                   }}
                 />
               )}
