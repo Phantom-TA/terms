@@ -92,6 +92,35 @@ describe('StreamProvider', () => {
     expect(onHeartbeat).toHaveBeenCalledWith('e1');
   });
 
+  it('does not re-render or resubscribe event listeners when only the status changes', () => {
+    const onRender = vi.fn();
+    const onHeartbeat = vi.fn();
+    function Listener() {
+      onRender();
+      useServerEvent('heartbeat', (event) => {
+        onHeartbeat(event.id);
+      });
+      return null;
+    }
+    render(
+      <Providers businessId="biz_1" client={new QueryClient()}>
+        <Listener />
+      </Providers>,
+    );
+    const before = onRender.mock.calls.length;
+    act(() => {
+      latest().onopen?.(new Event('open'));
+    });
+    act(() => {
+      latest().onerror?.(new Event('error'));
+    });
+    expect(onRender).toHaveBeenCalledTimes(before);
+    act(() => {
+      latest().listeners.get('heartbeat')?.(new MessageEvent('heartbeat', { data: heartbeat }));
+    });
+    expect(onHeartbeat).toHaveBeenCalledWith('e1');
+  });
+
   it('opens a new connection when the session changes', () => {
     const client = new QueryClient();
     const { rerender } = render(

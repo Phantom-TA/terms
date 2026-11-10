@@ -3,9 +3,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -13,12 +13,14 @@ import { connectStream, type EventSourceLike, type StreamStatus } from './stream
 
 type AnyHandler = (event: never) => void;
 
-interface StreamContextValue {
-  status: StreamStatus;
-  subscribe: (type: ServerEventType, handler: AnyHandler) => () => void;
-}
+type Subscribe = (type: ServerEventType, handler: AnyHandler) => () => void;
 
-const StreamContext = createContext<StreamContextValue | null>(null);
+/**
+ * Two contexts: the connection status changes often and only the live indicator reads it, while
+ * every screen subscribes to events. Kept apart, a status change re-renders only the indicator.
+ */
+const StatusContext = createContext<StreamStatus | null>(null);
+const SubscribeContext = createContext<Subscribe | null>(null);
 
 export interface StreamProviderProps {
   /** Business of the current session. One connection per session; null means no connection. */
@@ -50,32 +52,30 @@ export function StreamProvider({ businessId, createSource, children }: StreamPro
     };
   }, [businessId, createSource, queryClient]);
 
-  const value = useMemo<StreamContextValue>(
-    () => ({
-      status,
-      subscribe: (type, handler) => {
-        const set = handlers.current.get(type) ?? new Set<AnyHandler>();
-        handlers.current.set(type, set);
-        set.add(handler);
-        return () => {
-          set.delete(handler);
-        };
-      },
-    }),
-    [status],
-  );
+  // Stable for the provider's life, so subscriptions are not torn down when the status changes.
+  const subscribe = useCallback<Subscribe>((type, handler) => {
+    const set = handlers.current.get(type) ?? new Set<AnyHandler>();
+    handlers.current.set(type, set);
+    set.add(handler);
+    return () => {
+      set.delete(handler);
+    };
+  }, []);
 
-  return <StreamContext.Provider value={value}>{children}</StreamContext.Provider>;
+  return (
+    <SubscribeContext.Provider value={subscribe}>
+      <StatusContext.Provider value={status}>{children}</StatusContext.Provider>
+    </SubscribeContext.Provider>
+  );
 }
 
-function useStreamContext(): StreamContextValue {
-  const value = useContext(StreamContext);
-  if (!value) throw new Error('Stream hooks must be used inside StreamProvider');
+function required<T>(value: T | null): T {
+  if (value === null) throw new Error('Stream hooks must be used inside StreamProvider');
   return value;
 }
 
 export function useStreamStatus(): StreamStatus {
-  return useStreamContext().status;
+  return required(useContext(StatusContext));
 }
 
 /** Calls `handler` for each validated server event of `type`. The handler need not be memoised. */
@@ -83,7 +83,7 @@ export function useServerEvent<T extends ServerEventType>(
   type: T,
   handler: (event: ServerEventOf<T>) => void,
 ): void {
-  const { subscribe } = useStreamContext();
+  const subscribe = required(useContext(SubscribeContext));
   const latest = useRef(handler);
 
   useEffect(() => {
