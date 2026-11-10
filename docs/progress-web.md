@@ -6,7 +6,7 @@ Evidence commands, from `apps/web`: `pnpm gate` (typecheck, lint, format, Vitest
 
 **Everything below was tested against mocks generated from the shared schemas (`VITE_USE_MOCKS=true`). Nothing has been run against the real API yet**, because `develop` has no HTTP routes so far. Status is PASS for the UI behaviour in mock mode and says so where the real API could change the result.
 
-**Last full run (after the Phase 2 review, 2026-11-10):** 302 unit and component tests passed (29 files); 62 Playwright tests passed at both widths; `pnpm build` and its mock check passed.
+**Last full run (end of Phase 3, 2026-11-10):** 369 unit and component tests passed; 76 Playwright tests passed at both widths; `pnpm build` and its mock check passed.
 
 ## Phase 1: design system and shell
 
@@ -78,6 +78,23 @@ A code review of the phase, and a comparison with `a/core` and the contract, fou
 - **Not run against the real API.** The first integration run is Phase 6, once A's routes exist.
 - **Bundle size.** The grid chunk is about 2.8 MB (770 KB gzip) and the chart chunk about 1.1 MB (340 KB gzip). Both are lazy-loaded. The chart now registers only the modules it uses; doing the same for the grid is planned for Phase 6.
 - **Mock data.** `src/mocks/world.ts` reproduces the CONTEXT.md scenario with the shared money helpers. It never changes payment state.
+
+## Phase 3: Negotiation Room
+
+All tested against the scripted demo negotiation in mock mode. Nothing has met the real API, because the deal engine and HTTP routes are not built yet.
+
+| Feature                                                         | Status      | Evidence                                                                                                                                                                                                                        | Limits                                                                                                             |
+| --------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Supplier and client agents side by side, each in its own colour | PASS (mock) | `cards.test.tsx`, `NegotiationRoom.test.tsx`, `negotiation.spec.ts` at both widths                                                                                                                                              | On tablets the two lanes stack, each card keeping its colour and party name                                        |
+| Each message's terms, annualised rate and policy badges         | PASS (mock) | `cards.test.tsx`; `negotiation.spec.ts` (Harbor's 1.5% counter shows 23.2% a year and its blocked checks)                                                                                                                       |                                                                                                                    |
+| NEEDS_OWNER card with Approve and Reject                        | PASS (mock) | `cards.test.tsx` (decision only reported after the server confirms; failure keeps it open with the debug ID; an already-decided card refreshes); `negotiation.spec.ts` (approve reaches $6,689 for $61, reject closes the deal) |                                                                                                                    |
+| PayPal call chips from audit data                               | PASS (mock) | `NegotiationRoom.test.tsx`, `negotiation.spec.ts`                                                                                                                                                                               | Reads `AuditEntry.paypalCall` from contracts-v2; the mock's audit entries are scripted                             |
+| Waiting for PayPal, and PAID only from PayPal                   | PASS (mock) | `NegotiationRoom.test.tsx` (PAID appears only from a server event)                                                                                                                                                              | The mock never reports a payment                                                                                   |
+| Live over SSE                                                   | PASS (mock) | `live.test.ts`, `NegotiationRoom.test.tsx`; `negotiation.spec.ts` (moves arrive over the stream)                                                                                                                                | Late events cannot rewind a deal; the open conversation stays put and moves only to something that needs the owner |
+| Loading, empty, error states                                    | PASS        | `NegotiationRoom.test.tsx`                                                                                                                                                                                                      |                                                                                                                    |
+| Accessibility                                                   | PASS        | jest-axe and browser axe; the conversation is a `role="log"` so new moves are announced                                                                                                                                         |                                                                                                                    |
+
+**Review of Phase 3.** A code review before the pull request found ten issues, all fixed with tests: late events could rewind a deal; live updates could swap the conversation being read; closed deals still said "On the table" and "Open until"; a refused decision left a card that could never succeed; a reminders-only plan was told to approve a plan; the mock script crashed if the owner removed Juniper or Harbor; an ungrammatical fallback label; and dead code.
 
 ## Spikes
 
