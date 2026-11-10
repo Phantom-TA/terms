@@ -1,6 +1,7 @@
 import { StudioTurnResponse, type StudioMessage } from '@terms/shared';
 import { describe, expect, it } from 'vitest';
-import { mockStudioTurn } from './studio';
+import { currentWorld } from './handlers';
+import { MOCK_SCENARIO_LABEL, mockStudioTurn } from './studio';
 
 const ALL_TOOLS = [
   'view_schema',
@@ -47,10 +48,28 @@ describe('the mock cash strategist', () => {
     expect(third.message.toolCalls).toEqual([]);
   });
 
-  it('says which server tool answers a what-if, and invents no figures', () => {
-    const answer = turn([{ role: 'user', content: 'What if I cap discounts at 1.0%?' }]);
+  it('answers a what-if with a labelled stand-in made from the committed runway', () => {
+    const runway = currentWorld().runway();
+    const answer = StudioTurnResponse.parse(
+      mockStudioTurn(
+        {
+          messages: [{ role: 'user', content: 'What if I cap discounts at 1.0%?' }],
+          clientTools: ALL_TOOLS,
+        },
+        runway,
+      ),
+    );
     expect(answer.serverToolCalls.map((c) => c.name)).toEqual(['simulate_discount_cap']);
-    expect(JSON.stringify(answer)).not.toMatch(/\$\d/);
+    expect(answer.scenario?.label).toBe(MOCK_SCENARIO_LABEL);
+    expect(answer.scenario?.points.map((p) => p.afterPlanned)).toEqual(
+      runway.points.map((p) => p.afterCommitted),
+    );
+    expect(answer.message.content).not.toMatch(/\$\d/);
+  });
+
+  it('sends no what-if without a runway to make it from', () => {
+    const answer = turn([{ role: 'user', content: 'What if I cap discounts at 1.0%?' }]);
+    expect(answer.scenario).toBeNull();
   });
 
   it('charts what clients owe, largest first', () => {

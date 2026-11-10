@@ -1,4 +1,6 @@
 import {
+  type RunwayResponse,
+  type StudioScenario,
   type StudioServerToolTrace,
   type StudioToolCall,
   type StudioTurnRequest,
@@ -8,23 +10,48 @@ import {
 /**
  * A scripted stand-in for the cash strategist's model, for dev-only mock mode and tests. Like the
  * server, it calls only the client tools the browser offered, and it answers from a short script
- * for each kind of question rather than from a model. It never invents figures for a what-if: it
- * charts the owner's own runway and says which server tool would answer.
+ * for each kind of question rather than from a model. It invents no figures: its what-if is a
+ * stand-in labelled as one, the owner's runway with only the cash already committed.
  */
+
+export const MOCK_SCENARIO_LABEL = 'Mock what-if: only cash already committed';
+
+/** A stand-in for the server's what-if runway, from the runway's own committed line. */
+export function mockScenario(runway: RunwayResponse): StudioScenario {
+  return {
+    label: MOCK_SCENARIO_LABEL,
+    points: runway.points.map((p) => ({
+      ...p,
+      afterPlanned: p.afterCommitted,
+      afterBestEffort: p.afterCommitted,
+    })),
+  };
+}
 
 interface Step {
   /** Words for the owner on this round, if any. */
   say: string;
+  /** Whether this round answers with the what-if runway. */
+  scenario?: boolean;
   /** Widget calls for the browser to run on this round. */
   calls: Omit<StudioToolCall, 'id'>[];
   server?: StudioServerToolTrace[];
 }
 
-function lineChart(widgetId: string, title: string, server: StudioServerToolTrace[] = []): Step[] {
+function lineChart(
+  widgetId: string,
+  title: string,
+  server: StudioServerToolTrace[] = [],
+  table: 'runway' | 'scenario' = 'runway',
+): Step[] {
   return [
     {
       server,
-      say: 'I’ll chart your runway: before the plan, with cash already committed, and if every offer is accepted.',
+      scenario: table === 'scenario',
+      say:
+        table === 'scenario'
+          ? 'I’ll chart the runway under that what-if: before the plan, with cash already committed, and if every offer is accepted.'
+          : 'I’ll chart your runway: before the plan, with cash already committed, and if every offer is accepted.',
       calls: [
         {
           name: 'add_widget',
@@ -44,11 +71,11 @@ function lineChart(widgetId: string, title: string, server: StudioServerToolTrac
               type: 'line-chart',
               format: { title: { enabled: true, text: title } },
               dataMapping: {
-                categoryKey: [{ id: 'runway.date::day' }],
+                categoryKey: [{ id: `${table}.date::day` }],
                 valueKey: [
-                  { id: 'runway.before', aggregation: 'sum' },
-                  { id: 'runway.afterCommitted', aggregation: 'sum' },
-                  { id: 'runway.afterPlanned', aggregation: 'sum' },
+                  { id: `${table}.before`, aggregation: 'sum' },
+                  { id: `${table}.afterCommitted`, aggregation: 'sum' },
+                  { id: `${table}.afterPlanned`, aggregation: 'sum' },
                 ],
               },
             },
@@ -142,17 +169,22 @@ function script(question: string, run: number): { steps: Step[]; closing: string
   const widgetId = `strategist-${run.toString()}`;
   const q = question.toLowerCase();
   if (/\bcap\b|discounts? at/.test(q)) {
-    const steps = lineChart(widgetId, 'Cash runway, with your plan', [
-      {
-        name: 'simulate_discount_cap',
-        input: { capPct: '1.00' },
-        resultSummary: 'Mock mode: the server runs this what-if; nothing is simulated here.',
-      },
-    ]);
+    const steps = lineChart(
+      widgetId,
+      'Cash runway, with discounts capped',
+      [
+        {
+          name: 'simulate_discount_cap',
+          input: { capPct: '1.00' },
+          resultSummary: 'Mock mode: a stand-in what-if, the runway with only committed cash.',
+        },
+      ],
+      'scenario',
+    );
     return {
       steps,
       closing:
-        'In mock mode I can’t run the what-if itself; the server does that. The chart shows your runway with today’s plan, to compare against.',
+        'In mock mode this what-if is a stand-in: your runway with only the cash already committed. The server works out the real one.',
     };
   }
   if (/\bcost\b|curve|cheapest/.test(q))
@@ -171,7 +203,10 @@ function script(question: string, run: number): { steps: Step[]; closing: string
 }
 
 /** One turn: the round is how many tool results have come back since the owner last spoke. */
-export function mockStudioTurn(request: StudioTurnRequest): StudioTurnResponse {
+export function mockStudioTurn(
+  request: StudioTurnRequest,
+  runway: RunwayResponse | null = null,
+): StudioTurnResponse {
   const { messages, clientTools } = request;
   const lastUser = messages.findLastIndex((m) => m.role === 'user');
   const question = messages[lastUser];
@@ -199,6 +234,7 @@ export function mockStudioTurn(request: StudioTurnRequest): StudioTurnResponse {
       })),
     },
     serverToolCalls: step.server ?? [],
+    scenario: step.scenario && runway ? mockScenario(runway) : null,
     done: false,
   };
 }

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import {
   chooseBusiness,
   expectNoA11yViolations,
@@ -6,6 +6,18 @@ import {
   waitForAnimations,
   withoutExpectedNotices,
 } from './support';
+
+/** How much of the first chart in Studio's canvas has been painted; 0 before it draws. */
+function paintedPixels(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('.ag-studio-layout-widget canvas');
+    const pixels = canvas?.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+    if (!pixels) return 0;
+    let painted = 0;
+    for (let i = 3; i < pixels.length; i += 4) if ((pixels[i] ?? 0) > 0) painted += 1;
+    return painted;
+  });
+}
 
 test.describe('Cash Studio', () => {
   test('the strategist answers a what-if by building a chart from the owner’s runway', async ({
@@ -19,10 +31,16 @@ test.describe('Cash Studio', () => {
     const studio = page.getByTestId('cash-studio');
     await studio.getByText('Cap discounts at 1.0%').click();
 
-    // The answer arrives through POST /api/studio/turn, and Studio runs the widget calls.
-    await expect(studio.getByText('I’ll chart your runway', { exact: false })).toBeVisible();
-    await expect(studio.getByText('Cash runway, with your plan').first()).toBeVisible();
-    await expect(studio.getByText('the server does that', { exact: false })).toBeVisible();
+    // The answer arrives through POST /api/studio/turn with the what-if runway, which fills the
+    // scenario table before Studio runs the widget calls that chart it.
+    await expect(
+      studio.getByText('I’ll chart the runway under that what-if', { exact: false }),
+    ).toBeVisible();
+    await expect(studio.getByText('Cash runway, with discounts capped').first()).toBeVisible();
+    await expect(studio.getByText('this what-if is a stand-in', { exact: false })).toBeVisible();
+    // Drawn from the what-if rows. A chart that can't draw paints under 1,000 pixels (its frame);
+    // a drawn one about 12,000.
+    await expect.poll(() => paintedPixels(page), { timeout: 10_000 }).toBeGreaterThan(5000);
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

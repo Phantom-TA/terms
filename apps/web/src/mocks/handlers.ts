@@ -182,7 +182,7 @@ export const handlers = [
     const body = StudioTurnRequest.safeParse(await request.json());
     if (!body.success)
       return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid turn');
-    return HttpResponse.json(mockStudioTurn(body.data));
+    return HttpResponse.json(mockStudioTurn(body.data, world.runway()));
   }),
 
   http.post(endpoints.createGoal.path, async ({ request }) => {
