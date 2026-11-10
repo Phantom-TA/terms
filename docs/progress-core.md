@@ -62,6 +62,29 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 | Negotiation engine (messages, rounds, NEEDS_OWNER, client approvals)  | PASS        | `apps/api/test/negotiation/engine.test.ts`: full demo on Postgres, guards refuse bad moves     |
 | LLM roles (goal parser, reply parser, negotiators, explainer, writer) | Not started | Needs the LLM API key                                                                          |
 
+## Phase 6: API and live updates
+
+| Feature                                                                               | Status  | Evidence                                                                                                                                |
+| ------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP layer: contract-checked routes, sessions (httpOnly, hashed), errors, request ids | PASS    | `apps/api/test/http/core.test.ts`                                                                                                       |
+| Server-sent events with Last-Event-ID replay                                          | PASS    | `core.test.ts` (real socket)                                                                                                            |
+| Goals (rule-based parser, D-017), plans, deals, Workbench rows                        | PASS    | `apps/api/test/http/planning.test.ts`, `apps/api/test/goals/goal-parser.test.ts` (20 phrasings)                                         |
+| Approvals, policies, audit trail                                                      | PASS    | `core.test.ts`                                                                                                                          |
+| Deal runner: execution, stop rule, backups within and over the ceiling                | PASS    | `apps/api/test/http/runner-client.test.ts`                                                                                              |
+| Client offers, saved PayPal method, PayPal webhook route                              | PASS    | `runner-client.test.ts`, `demo-flow.test.ts`                                                                                            |
+| Public offer page: signed links, button replies, rate limit                           | PASS    | `apps/api/test/http/offers.test.ts`                                                                                                     |
+| PayPal import (sync), Connect screen, cash runway                                     | PASS    | `apps/api/test/http/cash.test.ts`                                                                                                       |
+| Demo end to end through the API (fake PayPal at the network level)                    | PASS    | `apps/api/test/http/demo-flow.test.ts`: $6,689 committed against $6,510 for $61, goal met, PARTIALLY_PAID and PAID by verified webhooks |
+| Cash Studio turn                                                                      | PARTIAL | Route rate-limited; answers NOT_CONFIGURED until the LLM agent exists                                                                   |
+| Free-text offer replies                                                               | PARTIAL | NOT_CONFIGURED until the LLM reply parser exists (D-022)                                                                                |
+
+## Phase 7: seed
+
+| Feature                                                                                            | Status              | Evidence                                                     |
+| -------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------ |
+| Demo seed: businesses, policies, payroll flow, real sandbox invoices created and sent, real import | PASS (fake sandbox) | `apps/api/test/seed/demo-seed.test.ts`; `pnpm seed`          |
+| Seed run against the real sandbox                                                                  | Not run yet         | Waits for the owner's go-ahead on cancelling spike leftovers |
+
 ## Contract requests from Developer B
 
 | Request                                              | Status | Evidence                                                                                |
