@@ -229,6 +229,17 @@ describe('the demo negotiation', () => {
     });
   });
 
+  it('leaves out a row the owner removed from the plan', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const harbor = plan.items.find((i) => i.client.name === 'Harbor & Co')!;
+    world.updateItem(harbor.id, { action: 'NONE' });
+    world.approve('60.00');
+    expect(() => world.startNegotiation()).not.toThrow();
+    expect(world.dealDetail('deal_harbor')).toBeNull();
+    expect(world.dealDetail('deal_juniper')?.state).toBe('AWAITING_PAYMENT');
+  });
+
   it('prices the deal on the terms currently on the table', () => {
     started();
     expect(world.dealDetail('deal_harbor')).toMatchObject({

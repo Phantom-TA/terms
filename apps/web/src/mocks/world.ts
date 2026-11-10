@@ -1,6 +1,7 @@
 import {
   type Actor,
   type ActionType,
+  formatMoney,
   type ApprovalView,
   type AuditAction,
   type AuditEntry,
@@ -133,6 +134,8 @@ export class PolicyBlockedError extends Error {
   }
 }
 
+const isOffer = (item: PlanItemView) => item.action !== 'NONE' && item.action !== 'REMINDER';
+
 /** The API's 400 for an action that doesn't fit the amount. */
 export class ShapeError extends Error {}
 
@@ -149,7 +152,9 @@ export class MockWorld {
 
   private stamp(): string {
     this.nowSeq += 1;
-    return `2026-11-09T10:${String(Math.min(this.nowSeq, 59)).padStart(2, '0')}:00Z`;
+    const minutes = String(Math.floor(this.nowSeq / 60) % 60).padStart(2, '0');
+    const seconds = String(this.nowSeq % 60).padStart(2, '0');
+    return `2026-11-09T10:${minutes}:${seconds}Z`;
   }
 
   currentGoal(): CurrentGoalResponse {
@@ -702,11 +707,11 @@ export class MockWorld {
     return this.event('audit.appended', { entry });
   }
 
-  private refreshed(goalMet = false): ServerEvent[] {
+  private refreshed(): ServerEvent[] {
     const plan = this.plan ?? bad('No plan');
     const goal = this.goal ?? bad('No goal');
     const summary = this.summaryFor(goal, plan.items, plan.costCeiling);
-    const status = goalMet || summary.goalMet ? 'MET' : plan.status;
+    const status = summary.goalMet ? 'MET' : plan.status;
     this.plan = { ...plan, status, summary, items: plan.items.map((i) => this.withDeal(i)) };
     const events = [
       this.event('plan.updated', { planId: plan.id, status, summary }),
@@ -730,7 +735,10 @@ export class MockWorld {
     return events;
   }
 
-  /** Runs the demo up to the owner's decision. Returns the events the server would have sent. */
+  /**
+   * Runs the demo up to the owner's decision and returns the events the server would have sent.
+   * It follows the demo goal's 1.2% maximum. A row the owner removed from the plan is left out.
+   */
   startNegotiation(): ServerEvent[] {
     const goal = this.goal ?? bad('No goal');
     const maxBps = percentToBps(goal.maxDiscountPct);
@@ -760,150 +768,161 @@ export class MockWorld {
       );
     }
 
-    // Juniper accepts the opening offer.
-    const juniper = this.deals.get('item_inv_juniper') ?? bad('No Juniper deal');
-    const juniperPayment = juniperEarly - discountOn(juniperEarly, juniperBps);
-    events.push(
-      this.moveDeal('item_inv_juniper', 'SENT', 'SUPPLIER_AGENT', 'Offer sent.', { round: 1 }),
-      this.say(
-        juniper,
-        juniperSpec,
-        'supplier',
-        'OFFER',
-        juniperTerms,
-        'Happy to take $4,960 today against $5,000 of invoice 1041.',
-        [checkMaxDiscount(juniperBps, maxBps), checkDoNotContact(juniperSpec.clientId, [])],
-        1,
-      ),
-      this.say(
-        juniper,
-        juniperSpec,
-        'client',
-        'ACCEPT',
-        juniperTerms,
-        'That clears our 12% hurdle, so we accept.',
-        [
-          checkHurdleRate(juniperBps, juniperSpec.dueInDays, 1200),
-          checkCashBuffer(50_000_00n, juniperPayment, 20_000_00n),
-          checkAutoPayLimit(juniperPayment, 3_000_00n),
-        ],
-        1,
-      ),
-      this.moveDeal(
-        'item_inv_juniper',
-        'AGREED',
-        'CLIENT_AGENT',
-        'Both sides accepted these terms.',
-        { agreedTerms: juniperTerms },
-      ),
-      this.record(
-        juniper.id,
-        'INVOICE_UPDATED',
-        'PayPal invoice updated with a $40.00 discount.',
-        'SYSTEM',
-        'PUT /v2/invoicing/invoices/{id}',
-      ),
-      this.moveDeal('item_inv_juniper', 'INVOICE_UPDATED', 'SYSTEM', 'PayPal invoice updated.'),
-      this.moveDeal(
-        'item_inv_juniper',
-        'AWAITING_PAYMENT',
-        'SYSTEM',
-        'Above the auto-pay limit, so a person approves in PayPal.',
-        { pendingApprovalId: 'appr_juniper_payment' },
-      ),
-    );
-    this.approvals.set('appr_juniper_payment', {
-      id: 'appr_juniper_payment',
-      type: 'CLIENT_PAYMENT',
-      requestedFrom: 'CLIENT_HUMAN',
-      decision: 'PENDING',
-      title: 'Approve the $4,960.00 payment to Maya Studio',
-      summary:
-        'This payment is above the auto-pay limit, so a person at Juniper Labs approves it in PayPal.',
-      planId: 'plan_1',
-      dealId: juniper.id,
-      terms: juniperTerms,
-      paymentAmount: fromCents(juniperPayment),
-      costImpact: null,
-      createdAt: this.stamp(),
-      decidedAt: null,
-      expiresAt: null,
-      decisionNote: null,
-    });
+    if (isOffer(juniperItem)) {
+      // Juniper accepts the opening offer.
+      const juniper = this.deals.get('item_inv_juniper') ?? bad('No Juniper deal');
+      const juniperPayment = juniperEarly - discountOn(juniperEarly, juniperBps);
+      events.push(
+        this.moveDeal('item_inv_juniper', 'SENT', 'SUPPLIER_AGENT', 'Offer sent.', { round: 1 }),
+        this.say(
+          juniper,
+          juniperSpec,
+          'supplier',
+          'OFFER',
+          juniperTerms,
+          `Happy to take ${formatMoney(fromCents(juniperPayment))} today against ${formatMoney(fromCents(juniperEarly))} of invoice 1041.`,
+          [checkMaxDiscount(juniperBps, maxBps), checkDoNotContact(juniperSpec.clientId, [])],
+          1,
+        ),
+        this.say(
+          juniper,
+          juniperSpec,
+          'client',
+          'ACCEPT',
+          juniperTerms,
+          'That clears our 12% hurdle, so we accept.',
+          [
+            checkHurdleRate(juniperBps, juniperSpec.dueInDays, 1200),
+            checkCashBuffer(50_000_00n, juniperPayment, 20_000_00n),
+            checkAutoPayLimit(juniperPayment, 3_000_00n),
+          ],
+          1,
+        ),
+        this.moveDeal(
+          'item_inv_juniper',
+          'AGREED',
+          'CLIENT_AGENT',
+          'Both sides accepted these terms.',
+          { agreedTerms: juniperTerms },
+        ),
+        this.record(
+          juniper.id,
+          'INVOICE_UPDATED',
+          'PayPal invoice updated with a $40.00 discount.',
+          'SYSTEM',
+          'PUT /v2/invoicing/invoices/{id}',
+        ),
+        this.moveDeal('item_inv_juniper', 'INVOICE_UPDATED', 'SYSTEM', 'PayPal invoice updated.'),
+        this.moveDeal(
+          'item_inv_juniper',
+          'AWAITING_PAYMENT',
+          'SYSTEM',
+          'Above the auto-pay limit, so a person approves in PayPal.',
+          { pendingApprovalId: 'appr_juniper_payment' },
+        ),
+      );
+      this.approvals.set('appr_juniper_payment', {
+        id: 'appr_juniper_payment',
+        type: 'CLIENT_PAYMENT',
+        requestedFrom: 'CLIENT_HUMAN',
+        decision: 'PENDING',
+        title: 'Approve the $4,960.00 payment to Maya Studio',
+        summary:
+          'This payment is above the auto-pay limit, so a person at Juniper Labs approves it in PayPal.',
+        planId: 'plan_1',
+        dealId: juniper.id,
+        terms: juniperTerms,
+        paymentAmount: fromCents(juniperPayment),
+        costImpact: null,
+        createdAt: this.stamp(),
+        decidedAt: null,
+        expiresAt: null,
+        decisionNote: null,
+      });
+    }
 
-    // Harbor counters above the owner's maximum, so it comes back to her.
-    const harbor = this.deals.get('item_inv_harbor') ?? bad('No Harbor deal');
-    const counterTerms = this.termsFor(harborSpec, harborEarly, 150);
-    const proposedTerms = this.termsFor(harborSpec, harborEarly, maxBps);
-    const plan = this.plan ?? bad('No plan');
-    const costAfter =
-      toCents(plan.summary.plannedCost) -
-      toCents(harborItem.cost) +
-      discountOn(harborEarly, maxBps);
-    const ceiling = toCents(plan.costCeiling);
-    const approval: ApprovalView = {
-      id: 'appr_harbor_counter',
-      type: 'COUNTER_OVER_PLAN',
-      requestedFrom: 'OWNER',
-      decision: 'PENDING',
-      title: `Counter to Harbor & Co at ${bpsToPercent(maxBps)}%`,
-      summary:
-        'Harbor asked for 1.50%, above your maximum. Your agent would counter at your maximum instead, which takes the plan over your ceiling.',
-      planId: plan.id,
-      dealId: harbor.id,
-      terms: proposedTerms,
-      paymentAmount: null,
-      costImpact: {
-        planCostBefore: plan.summary.plannedCost,
-        planCostAfter: fromCents(costAfter),
-        delta: fromCents(costAfter - toCents(plan.summary.plannedCost)),
-        ceiling: plan.costCeiling,
-        overCeilingBy: fromCents(costAfter > ceiling ? costAfter - ceiling : 0n),
-      },
-      createdAt: this.stamp(),
-      decidedAt: null,
-      expiresAt: '2026-11-12T18:00:00Z',
-      decisionNote: null,
-    };
-    this.approvals.set(approval.id, approval);
-    events.push(
-      this.moveDeal('item_inv_harbor', 'SENT', 'SUPPLIER_AGENT', 'Offer sent.', { round: 1 }),
-      this.say(
-        harbor,
-        harborSpec,
-        'supplier',
-        'OFFER',
-        harborTerms,
-        'Could you pay $1,750 of invoice 1043 early at 0.8%?',
-        [checkMaxDiscount(harborBps, maxBps), checkDoNotContact(harborSpec.clientId, [])],
-        1,
-      ),
-      this.say(
-        harbor,
-        harborSpec,
-        'client',
-        'COUNTER',
-        counterTerms,
-        '0.8% is below our 15% hurdle. Counter: 1.5%.',
-        [checkHurdleRate(harborBps, harborSpec.dueInDays, 1500), checkMaxDiscount(150, maxBps)],
-        1,
-      ),
-      this.moveDeal('item_inv_harbor', 'COUNTERED', 'CLIENT_AGENT', 'Harbor countered at 1.50%.', {
-        currentTerms: counterTerms,
-        impliedAnnualRate: impliedAnnualRate(150, harborSpec.dueInDays),
-        cost: fromCents(discountOn(harborEarly, 150)),
-        committedIfAgreed: fromCents(harborEarly - discountOn(harborEarly, 150)),
-      }),
-      this.moveDeal(
-        'item_inv_harbor',
-        'NEEDS_OWNER',
-        'SUPPLIER_AGENT',
-        'The counter that fits your maximum goes over your ceiling.',
-        { pendingApprovalId: approval.id, round: 1 },
-      ),
-      this.event('approval.requested', { approval }),
-      ...this.refreshed(),
-    );
+    if (isOffer(harborItem)) {
+      // Harbor counters above the owner's maximum, so it comes back to her.
+      const harbor = this.deals.get('item_inv_harbor') ?? bad('No Harbor deal');
+      const counterTerms = this.termsFor(harborSpec, harborEarly, 150);
+      const proposedTerms = this.termsFor(harborSpec, harborEarly, maxBps);
+      const plan = this.plan ?? bad('No plan');
+      const costAfter =
+        toCents(plan.summary.plannedCost) -
+        toCents(harborItem.cost) +
+        discountOn(harborEarly, maxBps);
+      const ceiling = toCents(plan.costCeiling);
+      const approval: ApprovalView = {
+        id: 'appr_harbor_counter',
+        type: 'COUNTER_OVER_PLAN',
+        requestedFrom: 'OWNER',
+        decision: 'PENDING',
+        title: `Counter to Harbor & Co at ${bpsToPercent(maxBps)}%`,
+        summary:
+          'Harbor asked for 1.50%, above your maximum. Your agent would counter at your maximum instead, which takes the plan over your ceiling.',
+        planId: plan.id,
+        dealId: harbor.id,
+        terms: proposedTerms,
+        paymentAmount: null,
+        costImpact: {
+          planCostBefore: plan.summary.plannedCost,
+          planCostAfter: fromCents(costAfter),
+          delta: fromCents(costAfter - toCents(plan.summary.plannedCost)),
+          ceiling: plan.costCeiling,
+          overCeilingBy: fromCents(costAfter > ceiling ? costAfter - ceiling : 0n),
+        },
+        createdAt: this.stamp(),
+        decidedAt: null,
+        expiresAt: '2026-11-12T18:00:00Z',
+        decisionNote: null,
+      };
+      this.approvals.set(approval.id, approval);
+      events.push(
+        this.moveDeal('item_inv_harbor', 'SENT', 'SUPPLIER_AGENT', 'Offer sent.', { round: 1 }),
+        this.say(
+          harbor,
+          harborSpec,
+          'supplier',
+          'OFFER',
+          harborTerms,
+          'Could you pay $1,750 of invoice 1043 early at 0.8%?',
+          [checkMaxDiscount(harborBps, maxBps), checkDoNotContact(harborSpec.clientId, [])],
+          1,
+        ),
+        this.say(
+          harbor,
+          harborSpec,
+          'client',
+          'COUNTER',
+          counterTerms,
+          '0.8% is below our 15% hurdle. Counter: 1.5%.',
+          [checkHurdleRate(harborBps, harborSpec.dueInDays, 1500), checkMaxDiscount(150, maxBps)],
+          1,
+        ),
+        this.moveDeal(
+          'item_inv_harbor',
+          'COUNTERED',
+          'CLIENT_AGENT',
+          'Harbor countered at 1.50%.',
+          {
+            currentTerms: counterTerms,
+            impliedAnnualRate: impliedAnnualRate(150, harborSpec.dueInDays),
+            cost: fromCents(discountOn(harborEarly, 150)),
+            committedIfAgreed: fromCents(harborEarly - discountOn(harborEarly, 150)),
+          },
+        ),
+        this.moveDeal(
+          'item_inv_harbor',
+          'NEEDS_OWNER',
+          'SUPPLIER_AGENT',
+          'The counter that fits your maximum goes over your ceiling.',
+          { pendingApprovalId: approval.id, round: 1 },
+        ),
+        this.event('approval.requested', { approval }),
+      );
+    }
+
+    events.push(...this.refreshed());
     return events;
   }
 
