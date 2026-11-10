@@ -18,11 +18,26 @@ export function sortDeals(deals: readonly DealSummary[]): DealSummary[] {
   );
 }
 
-/** The deal the URL names, if it is still in the list, otherwise the most pressing one. */
+/**
+ * The conversation to open when the owner hasn't chosen one. It stays put while live updates
+ * reorder the list, and moves only to something that needs the owner.
+ */
+export function nextAutoDealId(
+  deals: readonly DealSummary[],
+  previous: string | null,
+): string | null {
+  const current = deals.find((deal) => deal.id === previous);
+  if (current?.state === 'NEEDS_OWNER') return current.id;
+  return (
+    deals.find((deal) => deal.state === 'NEEDS_OWNER')?.id ?? current?.id ?? deals[0]?.id ?? null
+  );
+}
+
+/** The deal the address names, if it is still in the list, otherwise the automatic one. */
 export function selectedDealId(
   deals: readonly DealSummary[],
   requested: string | null,
+  auto: string | null,
 ): string | null {
-  if (requested && deals.some((deal) => deal.id === requested)) return requested;
-  return deals[0]?.id ?? null;
+  return requested && deals.some((deal) => deal.id === requested) ? requested : auto;
 }

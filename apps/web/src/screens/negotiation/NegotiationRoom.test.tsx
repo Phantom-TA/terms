@@ -234,6 +234,85 @@ describe('Negotiation Room', () => {
     expect(screen.getByText('Waiting for PayPal confirmation')).toBeInTheDocument();
   });
 
+  it('stays on the open conversation when another deal updates', async () => {
+    negotiated();
+    currentWorld().decideApproval('appr_harbor_counter', 'APPROVED', null);
+    renderRoom();
+    const first = await screen.findByRole('heading', { level: 2 });
+    const opened = first.textContent;
+    const {
+      paypal: _p,
+      messages: _m,
+      history: _h,
+      approvals: _a,
+      ...other
+    } = currentWorld().dealDetail(opened === 'Harbor & Co' ? 'deal_juniper' : 'deal_harbor')!;
+    emit({
+      id: 'other',
+      type: 'deal.updated',
+      at: AT,
+      data: { deal: { ...other, updatedAt: '2026-11-09T23:00:00Z' } },
+    });
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole('navigation', { name: 'Negotiations' })).getAllByRole('button')[0],
+      ).toHaveTextContent(other.client.name);
+    });
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(opened);
+  });
+
+  it('moves to a deal that starts needing the owner', async () => {
+    const world = currentWorld();
+    world.parseGoal("I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.");
+    world.createPlan();
+    world.approve('60.00');
+    renderRoom('/negotiation');
+    const opened = (await screen.findByRole('heading', { level: 2 })).textContent;
+    const otherId = opened === 'Harbor & Co' ? 'deal_juniper' : 'deal_harbor';
+    const {
+      paypal: _p,
+      messages: _m,
+      history: _h,
+      approvals: _a,
+      ...other
+    } = world.dealDetail(otherId)!;
+    emit({
+      id: 'needs',
+      type: 'deal.updated',
+      at: AT,
+      data: { deal: { ...other, state: 'NEEDS_OWNER', updatedAt: '2026-11-09T23:00:00Z' } },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(other.client.name);
+    });
+  });
+
+  it('does not call a closed deal open', async () => {
+    negotiated();
+    currentWorld().decideApproval('appr_harbor_counter', 'REJECTED', null);
+    renderRoom('/negotiation?deal=deal_harbor');
+    await screen.findByRole('heading', { name: 'Harbor & Co', level: 2 });
+    expect(screen.getByText('Last terms')).toBeInTheDocument();
+    expect(screen.queryByText('On the table')).not.toBeInTheDocument();
+    expect(screen.queryByText('If agreed')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Open until/)).not.toBeInTheDocument();
+  });
+
+  it('explains a plan that only sends reminders', async () => {
+    const world = currentWorld();
+    world.parseGoal("I need $6,200 by Friday. Max 1.2%. Don't contact Pinecrest or Birch.");
+    const plan = world.createPlan();
+    for (const name of ['Juniper Labs', 'Harbor & Co']) {
+      world.updateItem(plan.items.find((i) => i.client.name === name)!.id, { action: 'NONE' });
+    }
+    world.approve('60.00');
+    renderRoom();
+    expect(
+      await screen.findByRole('heading', { name: 'Nothing to negotiate' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/only sends reminders/)).toBeInTheDocument();
+  });
+
   it('shows why a loaded conversation failed', async () => {
     negotiated();
     server.use(

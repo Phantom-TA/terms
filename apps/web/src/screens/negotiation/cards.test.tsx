@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'jest-axe';
 import { http, HttpResponse } from 'msw';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { currentWorld } from '../../mocks/handlers';
 import { server } from '../../mocks/server';
 import { installMockApi } from '../../test/msw';
@@ -161,6 +161,24 @@ describe('ApprovalCard', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
     expect(screen.queryByText('Approved')).not.toBeInTheDocument();
     expect(currentWorld().dealDetail('deal_harbor')?.state).toBe('NEEDS_OWNER');
+  });
+});
+
+describe('ApprovalCard: already decided', () => {
+  it('says so, rather than offering a retry that can never work', async () => {
+    server.use(
+      http.post(endpoints.decideApproval.path, () =>
+        HttpResponse.json(
+          { error: { code: 'CONFLICT', message: 'Already decided.', retryable: false } },
+          { status: 409 },
+        ),
+      ),
+    );
+    const { queryClient } = renderWithProviders(<ApprovalCard approval={approval} />);
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(await screen.findByText('Already decided', { selector: 'p' })).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalled();
   });
 });
 

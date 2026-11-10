@@ -1,6 +1,6 @@
 import { type DealState, type DealSummary } from '@terms/shared';
 import { describe, expect, it } from 'vitest';
-import { negotiableDeals, selectedDealId, sortDeals } from './deals';
+import { negotiableDeals, nextAutoDealId, selectedDealId, sortDeals } from './deals';
 
 function deal(id: string, state: DealState, updatedAt: string, action = 'NEGOTIATE'): DealSummary {
   return { id, state, updatedAt, action } as DealSummary;
@@ -33,19 +33,43 @@ describe('sortDeals', () => {
   });
 });
 
+describe('nextAutoDealId', () => {
+  const a = deal('a', 'SENT', 't');
+  const b = deal('b', 'SENT', 't');
+  const needs = deal('n', 'NEEDS_OWNER', 't');
+  const alsoNeeds = deal('m', 'NEEDS_OWNER', 't');
+
+  it('starts on the first deal', () => {
+    expect(nextAutoDealId([a, b], null)).toBe('a');
+  });
+
+  it('stays put when live updates reorder the list', () => {
+    expect(nextAutoDealId([b, a], 'a')).toBe('a');
+  });
+
+  it('moves to something that needs the owner', () => {
+    expect(nextAutoDealId([needs, a], 'a')).toBe('n');
+  });
+
+  it('does not bounce between two deals that both need the owner', () => {
+    expect(nextAutoDealId([alsoNeeds, needs], 'n')).toBe('n');
+  });
+
+  it('moves on when the open deal has gone', () => {
+    expect(nextAutoDealId([a], 'gone')).toBe('a');
+    expect(nextAutoDealId([], 'gone')).toBeNull();
+  });
+});
+
 describe('selectedDealId', () => {
   const deals = [deal('first', 'NEEDS_OWNER', 't'), deal('second', 'SENT', 't')];
 
   it('uses the deal the address names', () => {
-    expect(selectedDealId(deals, 'second')).toBe('second');
+    expect(selectedDealId(deals, 'second', 'first')).toBe('second');
   });
 
-  it('falls back to the most pressing deal for an unknown or missing one', () => {
-    expect(selectedDealId(deals, 'gone')).toBe('first');
-    expect(selectedDealId(deals, null)).toBe('first');
-  });
-
-  it('is empty when there is nothing to show', () => {
-    expect(selectedDealId([], 'x')).toBeNull();
+  it('falls back to the automatic one for an unknown or missing deal', () => {
+    expect(selectedDealId(deals, 'gone', 'first')).toBe('first');
+    expect(selectedDealId(deals, null, 'first')).toBe('first');
   });
 });

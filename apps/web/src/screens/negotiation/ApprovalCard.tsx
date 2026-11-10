@@ -1,5 +1,6 @@
 import { type ApprovalView, formatMoney, toCents } from '@terms/shared';
 import { useState } from 'react';
+import { ApiError } from '../../api/errors';
 import { formatDateTime, formatPercent } from '../../lib/display';
 import { Button } from '../../ui/Button';
 import { ErrorState } from '../../ui/ErrorState';
@@ -7,6 +8,8 @@ import { useToast } from '../../ui/Toast';
 import { useDecideApproval } from './queries';
 
 type Decision = 'APPROVED' | 'REJECTED';
+
+const isConflict = (error: unknown) => error instanceof ApiError && error.code === 'CONFLICT';
 
 /**
  * A counter that needs the owner: what approving would do and what it costs. It counts as decided
@@ -33,8 +36,12 @@ export function ApprovalCard({
     try {
       // Awaited: the card leaves the page once the server's answer arrives.
       await decide.mutateAsync({ approvalId: approval.id, dealId: approval.dealId, decision });
-    } catch {
-      return; // Shown on the card from the mutation's error.
+    } catch (error) {
+      // The card disappears once the refreshed deal says it was decided, so say so somewhere.
+      if (isConflict(error)) {
+        toast({ tone: 'info', title: 'Already decided', description: approval.title });
+      }
+      return; // Anything else is shown on the card from the mutation's error.
     }
     toast({
       tone: 'success',

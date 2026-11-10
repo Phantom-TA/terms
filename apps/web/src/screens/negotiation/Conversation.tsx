@@ -1,4 +1,4 @@
-import { type DealDetail, formatMoney } from '@terms/shared';
+import { type DealDetail, formatMoney, isFinal } from '@terms/shared';
 import clsx from 'clsx';
 import { Check } from 'lucide-react';
 import { type ReactNode } from 'react';
@@ -21,8 +21,15 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** What to call the terms. A deal that closed without agreement has nothing on the table. */
+function termsLabel(deal: DealDetail): string {
+  if (deal.countsAsCommitted) return 'Agreed';
+  return isFinal(deal.state) ? 'Last terms' : 'On the table';
+}
+
 function DealHeader({ deal }: { deal: DealDetail }) {
   const terms = deal.agreedTerms ?? deal.currentTerms;
+  const closedWithoutCash = isFinal(deal.state) && !deal.countsAsCommitted;
   return (
     <header className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -32,19 +39,23 @@ function DealHeader({ deal }: { deal: DealDetail }) {
       </div>
       <dl className="flex flex-wrap gap-x-8 gap-y-2">
         {terms ? (
-          <Fact label={deal.agreedTerms ? 'Agreed' : 'On the table'}>
+          <Fact label={termsLabel(deal)}>
             {formatMoney(terms.amountEarly)} at {formatPercent(terms.discountPct)}
           </Fact>
         ) : null}
-        {deal.impliedAnnualRate ? (
+        {deal.impliedAnnualRate && !closedWithoutCash ? (
           <Fact label="Client’s return">{formatAnnualRate(deal.impliedAnnualRate)}</Fact>
         ) : null}
-        <Fact label="Cost to you">
-          <Money value={deal.cost} />
-        </Fact>
-        <Fact label={deal.countsAsCommitted ? 'Committed' : 'If agreed'}>
-          <Money value={deal.committedIfAgreed} committed={deal.countsAsCommitted} />
-        </Fact>
+        {closedWithoutCash ? null : (
+          <>
+            <Fact label="Cost to you">
+              <Money value={deal.cost} />
+            </Fact>
+            <Fact label={deal.countsAsCommitted ? 'Committed' : 'If agreed'}>
+              <Money value={deal.committedIfAgreed} committed={deal.countsAsCommitted} />
+            </Fact>
+          </>
+        )}
       </dl>
       {deal.closedReason ? <p className="text-base text-ink-2">{deal.closedReason}</p> : null}
     </header>
@@ -146,7 +157,7 @@ export function Conversation({
                     message={message}
                     clientName={deal.client.name}
                     supplierName={supplierName}
-                    latest={message.id === last?.id}
+                    latest={message.id === last?.id && !isFinal(deal.state)}
                   />
                 </div>
               </li>

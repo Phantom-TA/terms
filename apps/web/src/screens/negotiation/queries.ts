@@ -31,7 +31,8 @@ export function useDecideApproval() {
   return useMutation({
     mutationFn: ({ approvalId, decision }: DecideVariables) =>
       api('decideApproval', { params: { approvalId }, body: { decision } }),
-    onSuccess: async (_result, { dealId }) => {
+    // Settled, not success: a refusal often means the card is out of date.
+    onSettled: async (_result, _error, { dealId }) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: negotiationKeys.deals }),
         queryClient.invalidateQueries({ queryKey: workbenchKeys.goal }),
