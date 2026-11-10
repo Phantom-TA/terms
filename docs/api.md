@@ -18,7 +18,7 @@ const { plan } = PlanResponse.parse(await res.json());
   - Vite / Vitest: `resolve: { conditions: ['@terms/source'] }`
   - tsconfig: extend `../../tsconfig.base.json` (it sets `customConditions`), or add `"customConditions": ["@terms/source"]`.
 - **`endpoints`** is the route table: method, path pattern, auth, query, body and response schemas, success status. Mocks for `VITE_USE_MOCKS=true` can be generated from it.
-- **`paths`** builds URLs (`paths.planItem(planId, itemId)`); **`webPaths.offerPage(token)`** is the SPA route for the public offer page.
+- **`paths`** builds URLs (`paths.planItem(planId, itemId)`); **`webPaths`** names the SPA routes the server hands out: `offerPage(token)` for the public offer page, and `vaultReturn()` / `vaultCancel()` for the pages PayPal returns a person to after saving a PayPal method.
 
 ## Conventions
 
@@ -137,8 +137,44 @@ These are what the API actually does, beyond the schemas (all routes are live on
 - **PayPal webhooks:** a delivery that fails verification answers 401 and is still streamed to the
   owner as `webhook.received` with `verified: false`.
 
+### Visibility on a shared deal
+
+A deal is shared by the supplier (the owner) and its client, but each side's policy is its own.
+The server enforces this in every view, audit entry and live event (CR-4):
+
+- **Both sides see:** the deal's state, terms and round; the negotiation messages and their notes
+  (notes carry terms only, never an agent's reasons); PayPal's steps; and `closedReason`, which is
+  always the public text.
+- **History reasons:** a move whose real reason comes from one side's policy carries a neutral
+  public reason (`Countered`, `Declined`, `Approved`, `Waiting for the supplier`, `Withdrawn by the
+supplier`). The side that made the move reads the real reason in `DealDetail.history` and its
+  audit trail, for example "A counter at 1.20% costs $1.00 over the $60.00 ceiling" for the owner,
+  or "1.50% reaches our 23.00% target" for the client. A person's own words on the offer page
+  ("Can pay $1,000.00 early", "Not now, thanks") are public.
+- **Policy checks:** `NegotiationMessage.policyChecks` is filled only on messages from the viewer's
+  own side; the other side's messages show `[]`. `NEGOTIATION_MESSAGE` audit entries carry
+  `details.policyChecks` for the sender only.
+- **Approvals:** an approval is seen only by the business it is addressed to: `COUNTER_OVER_PLAN`
+  by the owner, `CLIENT_PAYMENT` by the client. That covers `DealDetail.approvals`,
+  `pendingApprovalId` (null for the other side), the approval's audit entries and
+  `approval.decided`. While a person at the client decides a payment, the owner's audit trail
+  says only "Waiting for a person at {client} to approve the payment".
+- **Client-only data:** the client's policy, its saved PayPal method and its approvals never reach
+  the owner.
+
 ## Changelog
 
+- **contracts-v3** (2026-11-10), from Developer B's CR-4:
+  - `webPaths.vaultReturn()` (`/client/vault/return`) and `webPaths.vaultCancel()`
+    (`/client/vault/cancel`), the pages PayPal returns a person to after saving, or not saving, a
+    PayPal method. The vault service builds its PayPal return and cancel URLs from them, and the
+    server serves the web app for both.
+  - No page for `paypalApprovalUrl`: it is PayPal's invoice page, which never returns to Terms.
+    Open it in a new tab and wait for `deal.updated`; the comment on
+    `DecideApprovalResponse.paypalApprovalUrl` says so.
+  - Who sees what on a shared deal is now enforced by the server (see "Visibility on a shared
+    deal" above). No schema changes.
+  - `CONTRACTS_VERSION` is 3.
 - **contracts-v2** (2026-11-10), from Developer B's contract requests:
   - CR-1: `PlanItemView.policyChecks`, the checks the server ran on the row when it was planned or
     last edited. Do-not-contact rows carry one blocked `doNotContact` check; other NONE rows are

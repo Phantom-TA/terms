@@ -87,12 +87,13 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 
 ## Contract requests from Developer B
 
-| Request                                              | Status | Evidence                                                                                |
-| ---------------------------------------------------- | ------ | --------------------------------------------------------------------------------------- |
-| CR-1 per-row policy checks on `PlanItemView`         | PASS   | `apps/api/test/plan-service.test.ts` (stored at planning and on edit; DNC rows blocked) |
-| CR-2 `paypalCall` and `dealId` on audit, filter      | PASS   | `apps/api/test/audit.test.ts`, `approval-service.test.ts`                               |
-| CR-3 web lint, tests, build and bundle check in CI   | PASS   | `.github/workflows/ci.yml` (runs when `apps/web/package.json` exists)                   |
-| Ship to B: merge to `develop` and tag `contracts-v2` | Open   | Waits for the owner's approval to open a PR                                             |
+| Request                                              | Status | Evidence                                                                                                  |
+| ---------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------- |
+| CR-1 per-row policy checks on `PlanItemView`         | PASS   | `apps/api/test/plan-service.test.ts` (stored at planning and on edit; DNC rows blocked)                   |
+| CR-2 `paypalCall` and `dealId` on audit, filter      | PASS   | `apps/api/test/audit.test.ts`, `approval-service.test.ts`                                                 |
+| CR-3 web lint, tests, build and bundle check in CI   | PASS   | `.github/workflows/ci.yml` (runs when `apps/web/package.json` exists)                                     |
+| CR-4 vault pages in `webPaths`; per-side visibility  | PASS   | `core.test.ts`, `vault-payment.test.ts`, `planning.test.ts`, `engine.test.ts`, `approval-service.test.ts` |
+| Ship to B: merge to `develop` and tag `contracts-v2` | Open   | Waits for the owner's approval to open a PR                                                               |
 
 ## Needs from Developer A (human)
 
