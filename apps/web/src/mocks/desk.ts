@@ -37,6 +37,7 @@ import {
   toCents,
   type VaultSetupResponse,
   type VaultView,
+  webPaths,
 } from '@terms/shared';
 import { BALANCE, clientRefs, type MockWorld, SUPPLIER_POLICY, TODAY } from './world';
 
@@ -353,8 +354,8 @@ export class MockDesk {
     if (!vault) throw new DeskValidationError('This client runs no agent.');
     const setupTokenId = `mock-setup-${clientId.replace('biz_', '')}`;
     this.vaults.set(clientId, { ...vault, status: 'PENDING', setupTokenId, updatedAt: NOW });
-    const back = `/client/vault/return?approval_token_id=${setupTokenId}`;
-    const cancel = '/client/vault/cancel';
+    const back = `${webPaths.vaultReturn()}?approval_token_id=${setupTokenId}`;
+    const cancel = webPaths.vaultCancel();
     this.world().log(
       'VAULT_SETUP_STARTED',
       'Saving a PayPal method was started.',
