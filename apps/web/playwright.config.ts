@@ -10,6 +10,8 @@ const externalBaseUrl = process.env['PLAYWRIGHT_BASE_URL'];
 
 export default defineConfig({
   testDir: './e2e',
+  // The real-server suite has its own config (playwright.real.config.ts).
+  testIgnore: 'real/**',
   fullyParallel: true,
   workers: 3,
   forbidOnly: true,
