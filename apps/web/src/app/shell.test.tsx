@@ -200,6 +200,7 @@ describe('app shell', () => {
     ).toEqual([
       'Workbench',
       'Negotiation Room',
+      'Cash Studio',
       'Approvals',
       'Audit trail',
       'Connect & import',
