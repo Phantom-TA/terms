@@ -6,7 +6,7 @@
  * recording and replaying implementations share one interface, as for roles, so the demo and CI
  * can replay a recorded turn with no key.
  */
-import { type StudioToolCall } from '@terms/shared';
+import { StudioScenario, type StudioToolCall } from '@terms/shared';
 import {
   generateText,
   type JSONValue,
@@ -33,7 +33,7 @@ export interface ChatServerTool {
   name: string;
   description: string;
   input: z.ZodType;
-  run(input: unknown): Promise<{ output: unknown; summary: string }>;
+  run(input: unknown): Promise<{ output: unknown; summary: string; scenario?: StudioScenario }>;
 }
 
 /** A widget action the browser declared; the model may ask for it, the browser runs it. */
@@ -68,6 +68,8 @@ export interface ChatResult {
   /** Client tools the model asked the browser to run. */
   toolCalls: StudioToolCall[];
   serverToolCalls: ServerToolTrace[];
+  /** The runway under the last what-if a tool ran this turn. */
+  scenario?: StudioScenario | undefined;
 }
 
 export const ChatResultSchema = z.object({
@@ -82,6 +84,7 @@ export const ChatResultSchema = z.object({
       resultSummary: z.string(),
     }),
   ),
+  scenario: StudioScenario.optional(),
 });
 
 export interface AiChat {
@@ -149,6 +152,7 @@ export class LiveChat implements AiChat {
     const started = Date.now();
     const model = this.options.model?.('smart') ?? providerModel(this.llm, 'smart');
     const trace: ServerToolTrace[] = [];
+    let scenario: StudioScenario | undefined;
     const tools: ToolSet = {};
     for (const t of input.serverTools) {
       tools[t.name] = tool({
@@ -157,6 +161,7 @@ export class LiveChat implements AiChat {
         execute: async (args: unknown) => {
           try {
             const result = await t.run(args);
+            if (result.scenario !== undefined) scenario = result.scenario;
             trace.push({ name: t.name, input: asRecord(args), resultSummary: result.summary });
             return toJson(result.output);
           } catch (err) {
@@ -186,7 +191,12 @@ export class LiveChat implements AiChat {
         .filter((c) => clientNames.has(c.toolName))
         .map((c) => ({ id: c.toolCallId, name: c.toolName, input: asRecord(c.input) }));
       this.options.logger?.debug({ role: 'studio', ms: Date.now() - started }, 'ai chat turn');
-      return { content: result.text, toolCalls, serverToolCalls: trace };
+      return {
+        content: result.text,
+        toolCalls,
+        serverToolCalls: trace,
+        ...(scenario === undefined ? {} : { scenario }),
+      };
     } catch (err) {
       const failure = classify(err, 'studio');
       this.options.logger?.warn(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RunwayPoint } from './runway.js';
 
 /**
  * POST /api/studio/turn — one turn of the AG Studio "cash strategist" agent.
@@ -72,6 +73,18 @@ export const StudioServerToolTrace = z.object({
 });
 export type StudioServerToolTrace = z.infer<typeof StudioServerToolTrace>;
 
+/**
+ * The runway as if the plan were the one the last `simulate_discount_cap` call described: the same
+ * points as GET /api/runway, so the browser can chart `afterPlanned` here against the real runway's.
+ * The server works it out; the browser must not work out payment outcomes itself.
+ */
+export const StudioScenario = z.object({
+  /** What it assumes, e.g. "Discounts capped at 1.00%". */
+  label: z.string(),
+  points: z.array(RunwayPoint),
+});
+export type StudioScenario = z.infer<typeof StudioScenario>;
+
 export const StudioTurnResponse = z.object({
   message: z.object({
     role: z.literal('assistant'),
@@ -80,6 +93,11 @@ export const StudioTurnResponse = z.object({
     toolCalls: z.array(StudioToolCall),
   }),
   serverToolCalls: z.array(StudioServerToolTrace),
+  /**
+   * Set when the server ran a what-if in this turn and has a PayPal balance to start it from:
+   * the runway under the last one. Null otherwise. Not carried between turns, so keep the last one.
+   */
+  scenario: StudioScenario.nullable().optional(),
   /** True when the model finished without needing client tool results. */
   done: z.boolean(),
 });

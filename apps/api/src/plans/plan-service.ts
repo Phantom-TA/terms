@@ -56,6 +56,7 @@ export interface CapSimulation {
     action: string;
     discountPct: string | null;
     amountEarly: string | null;
+    payBy: string | null;
     cost: string;
     committedIfAgreed: string;
   }[];
@@ -209,6 +210,7 @@ export class PlanService {
           action: r.action,
           discountPct: r.discountBps === null ? null : bpsToPercent(r.discountBps),
           amountEarly: r.amountEarly === null ? null : money(r.amountEarly),
+          payBy: r.payBy,
           cost: money(r.cost),
           committedIfAgreed: money(r.committedIfAgreed),
         })),

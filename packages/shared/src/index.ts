@@ -30,4 +30,4 @@ export * from './schemas/webhooks.js';
 export * from './schemas/events.js';
 
 /** Contract version; bumped with each contracts-vN tag. */
-export const CONTRACTS_VERSION = 3;
+export const CONTRACTS_VERSION = 4;

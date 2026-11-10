@@ -1,10 +1,14 @@
 /** The Cash Studio's read-only data tools, over the database, for one signed-in owner. */
 import { addDays, diffDays, isoDateInTimeZone, type Plan as PlanView } from '@terms/shared';
 import { type StudioData, type StudioPlan } from '../ai/studio-tools.js';
-import { runwayFor } from '../cash/runway-view.js';
+import { runwayFor, scenarioRunway } from '../cash/runway-view.js';
+import { AppError } from '../errors.js';
 import { toGoalView } from '../goals/goal-service.js';
 import { dateToIso, money } from '../mappers.js';
 import { type Services } from '../services.js';
+
+/** The what-if runway covers the same default horizon as the real one. */
+const WHAT_IF_HORIZON_DAYS = 30;
 
 const OPEN_INVOICE = ['SENT', 'UNPAID', 'PARTIALLY_PAID', 'SCHEDULED', 'PAYMENT_PENDING'] as const;
 
@@ -110,9 +114,16 @@ export function studioData(s: Services, supplier: { id: string; timeZone: string
 
     async simulate(maxDiscountBps) {
       const current = await s.goals.current(supplier.id);
-      return current === null
-        ? null
-        : s.plans.simulateCap(current.goal.id, supplier.id, maxDiscountBps);
+      if (current === null) return null;
+      const simulation = await s.plans.simulateCap(current.goal.id, supplier.id, maxDiscountBps);
+      // The what-if runway starts from the PayPal balance; without one there is nothing to chart.
+      const scenario = await scenarioRunway(s, supplier, simulation, WHAT_IF_HORIZON_DAYS).catch(
+        (err: unknown) => {
+          if (err instanceof AppError && err.code === 'CONFLICT') return null;
+          throw err;
+        },
+      );
+      return { simulation, scenario };
     },
   };
 }
