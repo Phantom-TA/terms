@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { pendingApprovals, useApprovals, useApprovalsLive } from '../screens/approvals/queries';
 import { Badge } from '../ui/Badge';
 import { LiveIndicator } from './LiveIndicator';
 import { SandboxBand } from './SandboxBand';
@@ -14,6 +15,25 @@ function navClass({ isActive }: { isActive: boolean }) {
       ? 'border-ink font-medium text-ink'
       : 'border-transparent text-ink-2 hover:border-rule-strong hover:text-ink',
   );
+}
+
+/** How many approvals wait for this business, shown beside the Approvals link. */
+function ApprovalsCount() {
+  const approvals = useApprovals();
+  const count = approvals.data ? pendingApprovals(approvals.data).length : 0;
+  if (count === 0) return null;
+  return (
+    <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-warn px-1.5 text-xs font-medium text-on-ink">
+      {count}
+      <span className="sr-only"> waiting</span>
+    </span>
+  );
+}
+
+/** Mounted only with a session, because the approvals belong to one. */
+function SessionWatchers() {
+  useApprovalsLive();
+  return null;
 }
 
 export function AppShell() {
@@ -45,6 +65,7 @@ export function AppShell() {
                   <li key={screen.path}>
                     <NavLink to={screen.path} className={navClass}>
                       {screen.label}
+                      {screen.path === '/approvals' ? <ApprovalsCount /> : null}
                     </NavLink>
                   </li>
                 ))}
@@ -58,6 +79,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
+      {role ? <SessionWatchers /> : null}
       <main id="main" tabIndex={-1} className="flex-1 outline-none">
         <Outlet />
       </main>
