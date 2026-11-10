@@ -10,6 +10,7 @@ import {
   supplierMoveFrom,
 } from '../../src/ai/negotiator-role.js';
 import { AiRoleError } from '../../src/ai/runner.js';
+import { dateToIso } from '../../src/mappers.js';
 import { ApprovalService } from '../../src/approvals/approval-service.js';
 import { AuditLogger } from '../../src/audit.js';
 import { DealStore } from '../../src/deals/deal-store.js';
@@ -325,6 +326,10 @@ describe('whatever a model says, no limit is broken', () => {
           const demo = await approvedDemoPlan(db, ids, plans);
           await engine.runAgents(demo.harbor);
 
+          const invoice = await db.deal
+            .findUniqueOrThrow({ where: { id: demo.harbor }, include: { invoice: true } })
+            .then((d) => d.invoice);
+          const dueDate = dateToIso(invoice.dueDate);
           const messages = await db.negotiationMessage.findMany({ where: { dealId: demo.harbor } });
           const approvedOverCeiling =
             (await db.approval.count({
@@ -340,7 +345,7 @@ describe('whatever a model says, no limit is broken', () => {
             if (m.fromParty.startsWith('client:')) {
               expect(t.amountEarly).toBeLessThanOrEqual(dollars(5000));
               const days = Math.round(
-                (Date.parse('2026-12-04T00:00:00Z') - Date.parse(`${t.payBy}T00:00:00Z`)) /
+                (Date.parse(`${dueDate}T00:00:00Z`) - Date.parse(`${t.payBy}T00:00:00Z`)) /
                   86_400_000,
               );
               expect(meetsAnnualRate(t.discountBps, days, 1500)).toBe(true);
@@ -370,7 +375,20 @@ describe('whatever a model says, no limit is broken', () => {
           }
         },
       ),
-      { numRuns: 30 },
+      {
+        numRuns: Number(process.env['FC_RUNS'] ?? '30'),
+        // Found by fuzzing: a client that always says ACCEPT takes the supplier's 1.00% counter,
+        // which does meet its 15% hurdle over this invoice's 24 days early.
+        examples: [
+          [
+            Array<ClientAnswer>(4).fill(clientSays({ move: 'ACCEPT', discountPct: null })),
+            [
+              supplierSays({ discountPct: '1.00' }),
+              ...Array<SupplierAnswer>(3).fill(supplierSays({ move: 'ACCEPT', discountPct: null })),
+            ],
+          ],
+        ],
+      },
     );
-  }, 180_000);
+  }, 900_000);
 });
