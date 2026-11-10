@@ -23,6 +23,17 @@ describe('DealStatePill', () => {
     render(<DealStatePill state="NEEDS_OWNER" />);
     expect(screen.getByText('Needs you')).toBeInTheDocument();
   });
+
+  it('enters afresh when the state changes, so the change is seen', () => {
+    const { container, rerender } = render(<DealStatePill state="SENT" />);
+    const before = container.firstElementChild;
+    expect(before).toHaveClass('animate-enter');
+    rerender(<DealStatePill state="SENT" />);
+    expect(container.firstElementChild).toBe(before);
+    rerender(<DealStatePill state="AGREED" />);
+    expect(container.firstElementChild).not.toBe(before);
+    expect(container.firstElementChild).toHaveAttribute('data-state', 'AGREED');
+  });
 });
 
 describe('PolicyBadge', () => {

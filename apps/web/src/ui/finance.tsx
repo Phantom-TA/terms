@@ -16,12 +16,18 @@ import {
 } from '../lib/display';
 import { Badge } from './Badge';
 
+/**
+ * A deal's state. Keyed by the state, so a change remounts it and it enters with a short
+ * animation, which reduced-motion settings turn off.
+ */
 export function DealStatePill({ state }: { state: DealState }) {
   const display = DEAL_STATE_DISPLAY[state];
   return (
-    <Badge tone={display.tone} dot pulse={display.waiting} title={display.description}>
-      {display.label}
-    </Badge>
+    <span key={state} data-state={state} className="inline-flex animate-enter">
+      <Badge tone={display.tone} dot pulse={display.waiting} title={display.description}>
+        {display.label}
+      </Badge>
+    </span>
   );
 }
 

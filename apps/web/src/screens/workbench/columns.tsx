@@ -208,6 +208,8 @@ export function buildColumns(deps: ColumnDeps): ColDef<AnyRow>[] {
       valueGetter: (params) =>
         isInvoiceRow(params.data) ? params.data.committed : (params.data?.committed ?? null),
       aggFunc: aggregateMoney,
+      // AG Grid flashes the cell when a live update changes it.
+      enableCellChangeFlash: true,
       cellRenderer: CommittedCell,
     },
     {
@@ -216,6 +218,8 @@ export function buildColumns(deps: ColumnDeps): ColDef<AnyRow>[] {
       width: 158,
       ...pinnedRight(deps),
       valueGetter: invoiceValue('dealState'),
+      // AG Grid flashes the cell when a live update changes it.
+      enableCellChangeFlash: true,
       cellRenderer: DealStateCell,
     },
     {
