@@ -39,6 +39,8 @@ export interface ApprovalRequest {
   costImpact?: CostImpact | null;
   expiresAt?: Date | null;
   actor: Actor;
+  /** The note a negotiation move carries if this approval is granted. */
+  draftNote?: string | null;
 }
 
 export type ApprovalHandler = (tx: DbTx, approval: Approval) => Promise<void>;
@@ -106,6 +108,7 @@ export class ApprovalService {
           ? {}
           : { costImpact: { ...req.costImpact } }),
         expiresAt: req.expiresAt ?? null,
+        draftNote: req.draftNote ?? null,
       },
     });
     await this.audit.write(tx, {
