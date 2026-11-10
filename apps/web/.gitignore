@@ -3,3 +3,5 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+playwright-report-real/
+test-results-real/
