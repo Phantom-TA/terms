@@ -14,6 +14,7 @@ import {
   ServerEvent,
   SessionResponse,
   SupplierPolicyResponse,
+  webPaths,
 } from '@terms/shared';
 import express from 'express';
 import request from 'supertest';
@@ -356,14 +357,18 @@ describe('route contract and the web app', () => {
     expect(services.config.env).toBe('test');
   });
 
-  it('serves the built web app for every non-API path, including /offer/:token', async () => {
+  it('serves the built web app for every non-API path, including the pages PayPal returns to', async () => {
     const dist = mkdtempSync(join(tmpdir(), 'terms-web-'));
     writeFileSync(join(dist, 'index.html'), '<!doctype html><title>Terms</title>');
     writeFileSync(join(dist, 'app.js'), 'console.log(1)');
     const { app } = testApp(db, { webDist: dist });
-    expect((await request(app).get('/offer/abc.def').expect(200)).text).toContain(
-      '<title>Terms</title>',
-    );
+    for (const page of [
+      webPaths.offerPage('abc.def'),
+      `${webPaths.vaultReturn()}?approval_token_id=TOKEN-1`,
+      webPaths.vaultCancel(),
+    ]) {
+      expect((await request(app).get(page).expect(200)).text).toContain('<title>Terms</title>');
+    }
     expect((await request(app).get('/app.js').expect(200)).text).toContain('console.log');
     expect(errorCode((await request(app).get('/api/unknown').expect(404)).body)).toBe('NOT_FOUND');
   });

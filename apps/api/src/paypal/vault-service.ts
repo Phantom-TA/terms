@@ -8,6 +8,7 @@
  * Calls go through the APIMatic SDK. Each write is claimed in the ledger and carries the claim's
  * PayPal-Request-Id; a lost answer is settled by replaying the same request (sendClaimed).
  */
+import { webPaths } from '@terms/shared';
 import { type PaypalClient } from 'paypal';
 import { type AuditLogger } from '../audit.js';
 import { type Db } from '../db.js';
@@ -106,8 +107,8 @@ export class VaultService {
               paypal: {
                 usageType: 'MERCHANT',
                 experienceContext: {
-                  returnUrl: `${this.appBaseUrl}/client/vault/return`,
-                  cancelUrl: `${this.appBaseUrl}/client/vault/cancel`,
+                  returnUrl: `${this.appBaseUrl}${webPaths.vaultReturn()}`,
+                  cancelUrl: `${this.appBaseUrl}${webPaths.vaultCancel()}`,
                 },
               },
             },

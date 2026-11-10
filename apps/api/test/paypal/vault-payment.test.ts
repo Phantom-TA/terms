@@ -1,4 +1,4 @@
-import { dollars } from '@terms/shared';
+import { dollars, webPaths } from '@terms/shared';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { AuditLogger } from '../../src/audit.js';
 import { DealStore } from '../../src/deals/deal-store.js';
@@ -145,8 +145,8 @@ describe('VaultService (Postgres, fake PayPal through the SDK)', () => {
           usage_type: 'MERCHANT',
           permit_multiple_payment_tokens: false,
           experience_context: {
-            return_url: `${APP}/client/vault/return`,
-            cancel_url: `${APP}/client/vault/cancel`,
+            return_url: `${APP}${webPaths.vaultReturn()}`,
+            cancel_url: `${APP}${webPaths.vaultCancel()}`,
             shipping_preference: 'GET_FROM_FILE',
             user_action: 'CONTINUE',
           },

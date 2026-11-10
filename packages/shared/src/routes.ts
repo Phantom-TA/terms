@@ -94,6 +94,10 @@ export const paths = {
 /** SPA routes that are not API routes (the server serves index.html for them). */
 export const webPaths = {
   offerPage: (token: string) => `/offer/${enc(token)}`,
+  /** Where PayPal returns a client's person after approving the saved PayPal method. */
+  vaultReturn: () => '/client/vault/return',
+  /** Where PayPal returns a client's person who cancelled saving the PayPal method. */
+  vaultCancel: () => '/client/vault/cancel',
 } as const;
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
