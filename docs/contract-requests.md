@@ -61,4 +61,6 @@ vaultCancel: () => '/client/vault/cancel',
 
 2. Answered: no return page is needed for a payment. `paypalApprovalUrl` from `POST /api/approvals/:approvalId` is the PayPal invoice page, sent only when the client has no saved PayPal method. PayPal does not redirect back; Terms learns of the payment from the verified webhook and sends `deal.updated`. The web app opens it in a new tab and shows the payment as waiting for PayPal confirmation (W-037).
 
-3. Answered: each side sees the negotiation messages, PayPal's steps and the deal's state changes; each sees only its own approvals, reasons and policy checks. A is fixing the server, which currently shows some of these to the other side, and will say when that is on `develop`. The web app and mock follow these rules (W-046).
+3. Open, small: `DealSummary.pendingApprovalId` is documented as "Pending NEEDS_OWNER or client-payment approval". Under the rule in 3, the owner should get it only for its own approvals and a client only for its own; otherwise the owner's Workbench shows a client's payment approval as needing the owner. Please say so in the comment in `contracts-v3`, and likewise for `closedReason`. The mock already behaves this way.
+
+4. Answered: each side sees the negotiation messages, PayPal's steps and the deal's state changes; each sees only its own approvals, reasons and policy checks. A is fixing the server, which currently shows some of these to the other side, and will say when that is on `develop`. The web app and mock follow these rules (W-046).

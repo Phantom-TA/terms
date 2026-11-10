@@ -6,7 +6,7 @@ Evidence commands, from `apps/web`: `pnpm gate` (typecheck, lint, format, Vitest
 
 **Everything below was tested against mocks generated from the shared schemas (`VITE_USE_MOCKS=true`). Nothing has been run against the real API yet**, because `develop` has no HTTP routes so far. Status is PASS for the UI behaviour in mock mode and says so where the real API could change the result.
 
-**Last full run (Phase 4 with A's CR-4 answers, 2026-11-10):** 464 unit and component tests passed; 100 Playwright tests passed at both widths; `pnpm build` and its mock check passed.
+**Last full run (Phase 4 with A's CR-4 answers, 2026-11-10):** 469 unit and component tests passed; 100 Playwright tests passed at both widths; `pnpm build` and its mock check passed.
 
 ## Phase 1: design system and shell
 
@@ -113,7 +113,7 @@ All tested in mock mode against handlers that validate the shared schemas. None 
 | Settings: owner policy and PayPal account; client policy and saved method                                     | PASS (mock) | `Settings.test.tsx` (validation beside fields, save only on server confirmation, failure keeps edits, discard); `client.spec.ts`, `owner-records.spec.ts`                                                                                           |                                                                                  |
 | Dev-only stand-in for PayPal's approval page                                                                  | PASS        | `MockPayPal.test.tsx` (only in-app paths); `pnpm build` bundle check                                                                                                                                                                                |                                                                                  |
 
-**Each side's own records (after CR-4).** Following A's answer, the owner no longer sees a client's approvals, limits or policy checks (in the Negotiation Room, deals or the audit trail), and a client no longer sees the owner's. Tested in `desk.test.ts`, `NegotiationRoom.test.tsx` and `negotiation.spec.ts`.
+**Each side's own records (after CR-4).** Following A's answer, the owner no longer sees a client's approvals, limits or policy checks (in the Negotiation Room, deals or the audit trail), and a client no longer sees the owner's. A review of that change found the rule still broken in deal summaries (a client's waiting approval made the owner's Workbench say it needed the owner), audit entry details, the client's invoice link and the event stream; all fixed. Tested in `desk.test.ts`, `NegotiationRoom.test.tsx` and `negotiation.spec.ts`.
 
 **Review of Phase 4.** A code review before the pull request raised ten points. Fixed with tests: a refused part payment could reappear as a retry of the same amount; the owner could not lift a never-contact block on a client without invoices; the mock's audit showed each side the other's private records, repeated rows when paging, and recommended countering a supplier the client never pays early; the mock answered some refusals as network failures; and the client policy card was duplicated. Recorded rather than changed: the mock world restarts after the PayPal stand-in (W-040), and two test-only accessors on the mock world were kept.
 
