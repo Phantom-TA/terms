@@ -204,7 +204,7 @@ describe('audit', () => {
     expect(second.entries[0]!.at <= first.entries[2]!.at).toBe(true);
   });
 
-  it('shows both sides every state change, each with only its own reasons', () => {
+  it('shows both sides every state change, each with its own reasons and the other’s neutral ones', () => {
     negotiated();
     const reasons = (business: typeof maya) =>
       desk
@@ -216,8 +216,10 @@ describe('audit', () => {
     expect(client).toHaveLength(owner.length);
     expect(owner.some((s) => s.includes('goes over your ceiling'))).toBe(true);
     expect(client.some((s) => s.includes('ceiling'))).toBe(false);
-    expect(client.some((s) => s.includes('Harbor countered at 1.50%'))).toBe(true);
-    expect(owner.some((s) => s.includes('Harbor countered at 1.50%'))).toBe(false);
+    expect(client.some((s) => s.includes('Waiting for the supplier'))).toBe(true);
+    expect(client.some((s) => s.includes('15% hurdle'))).toBe(true);
+    expect(owner.some((s) => /hurdle/i.test(s))).toBe(false);
+    expect(owner.some((s) => s.endsWith('Countered'))).toBe(true);
   });
 
   it('keeps each side’s private records and the owner’s reasoning to itself', () => {
@@ -240,11 +242,13 @@ describe('audit', () => {
     const client = desk.audit(harbor, { limit: 200 }).entries;
     expect(client.some((e) => e.action === 'CLIENT_POLICY_UPDATED')).toBe(true);
     expect(client.some((e) => e.action === 'VAULT_SETUP_STARTED')).toBe(false);
-    // The owner's steps reach the client only as the deal's state changes, without reasons.
+    // The owner's steps reach the client only as the deal's state changes, with the public reason.
     const fromOwner = client.filter((e) => e.actor === 'OWNER');
     expect(fromOwner.length).toBeGreaterThan(0);
     expect(fromOwner.every((e) => e.action === 'DEAL_TRANSITION')).toBe(true);
+    expect(fromOwner.some((e) => e.summary.endsWith('Declined'))).toBe(true);
     expect(fromOwner.some((e) => e.summary.includes('You rejected'))).toBe(false);
+    expect(JSON.stringify(fromOwner)).not.toMatch(/privateTo|publicReason/);
     expect(client.some((e) => e.summary.includes('ceiling'))).toBe(false);
     expect(client.some((e) => e.action === 'NEGOTIATION_MESSAGE')).toBe(true);
 
@@ -264,6 +268,10 @@ describe('a deal as each side sees it', () => {
     expect(checks.some((r) => clientRules.includes(r))).toBe(false);
     expect(deal.approvals).toEqual([]);
     expect(JSON.stringify(deal)).not.toMatch(/auto-pay|hurdle/i);
+    // The checks are the sender's: the client's messages carry none for the owner.
+    const fromClient = deal.messages.filter((m) => m.from.startsWith('client:'));
+    expect(fromClient.length).toBeGreaterThan(0);
+    expect(fromClient.every((m) => m.policyChecks.length === 0)).toBe(true);
   });
 
   it('shows a client only the client’s checks, reasons and approvals', () => {
@@ -273,7 +281,12 @@ describe('a deal as each side sees it', () => {
     expect(checks.every((r) => clientRules.includes(r))).toBe(true);
     expect(deal.approvals).toEqual([]);
     expect(JSON.stringify(deal)).not.toMatch(/ceiling|your maximum/i);
-    expect(deal.history.map((h) => h.to)).toContain('NEEDS_OWNER');
+    expect(deal.history.find((h) => h.to === 'NEEDS_OWNER')?.reason).toBe(
+      'Waiting for the supplier',
+    );
+    expect(deal.history.find((h) => h.to === 'COUNTERED')?.reason).toContain('15% hurdle');
+    const fromOwner = deal.messages.filter((m) => m.from.startsWith('supplier:'));
+    expect(fromOwner.every((m) => m.policyChecks.length === 0)).toBe(true);
   });
 });
 
@@ -286,12 +299,16 @@ describe('what each side hears and is told', () => {
     expect(desk.summaryFor(juniperDeal, 'CLIENT').pendingApprovalId).toBe('appr_juniper_payment');
   });
 
-  it('keeps the owner’s reason for closing a deal from the client', () => {
+  it('gives both sides the public reason a deal closed, and the owner its own', () => {
     negotiated();
     world.decideApproval('appr_harbor_counter', 'REJECTED', null);
-    const harborDeal = [...world.deals.values()].find((d) => d.id === 'deal_harbor')!;
-    expect(desk.summaryFor(harborDeal, 'SUPPLIER').closedReason).toBe('You rejected the counter.');
-    expect(desk.summaryFor(harborDeal, 'CLIENT').closedReason).toBeNull();
+    const detail = world.dealDetail('deal_harbor')!;
+    const owner = desk.dealFor(detail, 'SUPPLIER');
+    const client = desk.dealFor(detail, 'CLIENT');
+    expect(owner.closedReason).toBe('Declined');
+    expect(client.closedReason).toBe('Declined');
+    expect(owner.history.at(-1)?.reason).toBe('You rejected the counter.');
+    expect(client.history.at(-1)?.reason).toBe('Declined');
   });
 
   it('never sends a hidden reason in an audit entry’s details', () => {

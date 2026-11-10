@@ -59,10 +59,12 @@ test.describe('Negotiation Room', () => {
     const counter = log.getByRole('article', { name: /Harbor & Co’s agent: Counter/ });
     await expect(counter).toContainText('23.2% a year');
     await expect(counter).toContainText('We could pay early at 1.5%.');
-    // The owner sees its own checks on the counter, never the client's limits.
-    await expect(counter).toContainText('Max discount');
-    await expect(counter).not.toContainText(/hurdle/i);
-    await expect(counter).toContainText('blocked');
+    // A message's checks are its sender's: the owner sees its own on its offer, none of the
+    // client's on the counter, and why the counter needs it on the approval card.
+    const offer = log.getByRole('article', { name: /Maya Studio’s agent: Offer/ });
+    await expect(offer).toContainText('Max discount');
+    await expect(counter).not.toContainText(/max discount|hurdle|blocked/i);
+    await expect(card).toContainText('above your maximum');
 
     await waitForAnimations(page);
     expect(withoutExpectedNotices(errors)).toEqual([]);
