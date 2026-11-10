@@ -6,7 +6,7 @@ import {
 } from '@terms/shared';
 import { type SyntheticEvent, useState } from 'react';
 import { toApiError } from '../../api/errors';
-import { formatDate, formatPercent } from '../../lib/display';
+import { formatDate, formatPercent, plainMoney, plainPercent } from '../../lib/display';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
 import { Chip, EditableChip } from '../../ui/Chip';
@@ -15,7 +15,6 @@ import { Field, Input, Select } from '../../ui/Field';
 import { useToast } from '../../ui/Toast';
 import {
   displayMoney,
-  plainMoney,
   validateAmount,
   validateDate,
   validateOpening,
@@ -75,15 +74,19 @@ export function GoalBar({ goal, hasPlan, clients }: GoalBarProps) {
 
   const showForm = goal === null || (goal.status === 'DRAFT' && rewriting);
 
-  const submit = (event: SyntheticEvent) => {
-    event.preventDefault();
-    if (text.trim() === '') return;
+  // The first try and a retry both close the form once the server has read the goal.
+  const read = () => {
     createGoal.mutate(text, {
       onSuccess: () => {
         setRewriting(false);
         setText('');
       },
     });
+  };
+  const submit = (event: SyntheticEvent) => {
+    event.preventDefault();
+    if (text.trim() === '') return;
+    read();
   };
 
   if (showForm) {
@@ -136,9 +139,7 @@ export function GoalBar({ goal, hasPlan, clients }: GoalBarProps) {
           <ErrorState
             title="Couldn’t read that"
             error={createGoal.error}
-            onRetry={() => {
-              createGoal.mutate(text);
-            }}
+            onRetry={read}
             retrying={createGoal.isPending}
           />
         ) : null}
@@ -212,21 +213,21 @@ export function GoalBar({ goal, hasPlan, clients }: GoalBarProps) {
         {chip(
           'Max discount',
           formatPercent(goal.maxDiscountPct),
-          formatPercent(goal.maxDiscountPct).replace('%', ''),
+          plainPercent(goal.maxDiscountPct),
           validatePercent,
           (raw) => patch({ maxDiscountPct: normalizePercentInput(raw) ?? raw }),
         )}
         {chip(
           'Opening',
           formatPercent(goal.openingDiscountPct),
-          formatPercent(goal.openingDiscountPct).replace('%', ''),
+          plainPercent(goal.openingDiscountPct),
           (raw) => validateOpening(raw, goal.maxDiscountPct),
           (raw) => patch({ openingDiscountPct: normalizePercentInput(raw) ?? raw }),
         )}
         {chip(
           'Buffer',
           formatPercent(goal.bufferPct),
-          formatPercent(goal.bufferPct).replace('%', ''),
+          plainPercent(goal.bufferPct),
           validatePercent,
           (raw) => patch({ bufferPct: normalizePercentInput(raw) ?? raw }),
         )}

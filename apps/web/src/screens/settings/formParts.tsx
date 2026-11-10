@@ -4,14 +4,6 @@ import { toApiError } from '../../api/errors';
 import { ErrorState } from '../../ui/ErrorState';
 
 /** "1.20" → "1.2", for an input a person edits. */
-export function plainPercent(value: string): string {
-  return value.replace(/\.?0+$/, '');
-}
-
-export function plainMoney(value: string): string {
-  return value.replace(/\.00$/, '');
-}
-
 export type FieldErrors<K extends string> = Partial<Record<K, string>>;
 
 /** Reads a percentage field, recording a message when it isn't one. */
@@ -54,4 +46,13 @@ export function SaveError({ error, onRetry }: { error: unknown; onRetry: () => v
 
 export function FormActions({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-2 pt-2">{children}</div>;
+}
+
+/** Whether a form's draft differs from what is saved. A list's order is not a change. */
+export function draftChanged(draft: object, saved: object): boolean {
+  const canonical = (value: object) =>
+    JSON.stringify(value, (_key, v: unknown) =>
+      Array.isArray(v) ? [...(v as unknown[])].map(String).toSorted() : v,
+    );
+  return canonical(draft) !== canonical(saved);
 }

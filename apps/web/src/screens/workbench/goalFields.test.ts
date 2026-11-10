@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { plainMoney } from '../../lib/display';
 import {
   displayMoney,
-  plainMoney,
   validateAmount,
   validateDate,
   validateOpening,

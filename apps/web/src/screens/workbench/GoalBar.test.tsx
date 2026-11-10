@@ -315,4 +315,32 @@ describe('GoalBar', () => {
     await user.click(screen.getByRole('button', { name: 'Keep the current goal' }));
     expect(await screen.findByRole('region', { name: 'Your goal' })).toBeInTheDocument();
   });
+
+  it('closes the form when a new sentence is read on the retry', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    const goal = await readGoal(user);
+    await user.click(within(goal).getByRole('button', { name: 'Start over' }));
+    const box = await screen.findByLabelText(/What cash do you need/);
+    await user.clear(box);
+    await user.type(box, 'I need $5,000 by Friday. Max 1.2%.');
+    server.use(
+      http.post(
+        endpoints.createGoal.path,
+        () =>
+          HttpResponse.json(
+            { error: { code: 'AI_ERROR', message: 'Could not read it.', retryable: true } },
+            { status: 502 },
+          ),
+        { once: true },
+      ),
+    );
+    await user.click(screen.getByRole('button', { name: 'Read my goal' }));
+    const alert = await screen.findByRole('alert');
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    // The new goal is read, and the owner sees it, not the form still holding the old sentence.
+    const updated = await screen.findByRole('region', { name: 'Your goal' });
+    expect(updated).toHaveTextContent('I need $5,000 by Friday');
+    expect(screen.queryByLabelText(/What cash do you need/)).not.toBeInTheDocument();
+  });
 });

@@ -4,7 +4,6 @@ import {
   CustomEditorModule,
   enableDevValidations,
   HighlightChangesModule,
-  NumberEditorModule,
   PinnedRowModule,
   QuickFilterModule,
   RowAutoHeightModule,
@@ -38,10 +37,9 @@ const modules = [
   // Workbench: the column picker.
   SideBarModule,
   ColumnsToolPanelModule,
-  // Workbench: the action select, and the amount and discount cells.
+  // Workbench: the action select (custom), and the amount and discount cells (text).
   CustomEditorModule,
   TextEditorModule,
-  NumberEditorModule,
   // Workbench: a cell a live update changed flashes.
   HighlightChangesModule,
   // Workbench: editable cells and saving rows are styled by rule.

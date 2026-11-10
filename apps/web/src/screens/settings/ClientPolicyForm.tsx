@@ -1,15 +1,14 @@
 import { type BusinessRef, type ClientPolicyView, PutClientPolicyRequest } from '@terms/shared';
 import { type SyntheticEvent, useState } from 'react';
-import { formatDateTime } from '../../lib/display';
+import { formatDateTime, plainMoney, plainPercent } from '../../lib/display';
 import { Button } from '../../ui/Button';
 import { Field, Input } from '../../ui/Field';
 import { useToast } from '../../ui/Toast';
 import {
+  draftChanged,
   type FieldErrors,
   FormActions,
   issuesToErrors,
-  plainMoney,
-  plainPercent,
   readMoney,
   readPercent,
   SaveError,
@@ -81,7 +80,7 @@ export function ClientPolicyForm({ policy, suppliers }: ClientPolicyFormProps) {
   const [errors, setErrors] = useState<FieldErrors<Key>>({});
   const save = useSaveClientPolicy();
   const { toast } = useToast();
-  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(policy));
+  const dirty = draftChanged(draft, draftOf(policy));
 
   const submit = async (event?: SyntheticEvent) => {
     event?.preventDefault();
