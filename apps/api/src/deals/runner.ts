@@ -40,6 +40,8 @@ export interface RunnerDeps {
   events: EventBus;
   logger: Logger;
   publishDeals: (dealIds: readonly string[]) => Promise<void>;
+  /** Issues the offer page link for a client without an agent. */
+  issueOfferLink: (dealId: string) => Promise<void>;
   /** Null when PayPal is not configured: deals wait at the first PayPal step. */
   paypal: RunnerPayPal | null;
 }
@@ -125,6 +127,7 @@ export class DealRunner {
           if (paypal !== null) await paypal.remind(dealId);
         } else if (deal.action !== 'NONE') {
           await this.d.engine.sendOffer(dealId);
+          if (!deal.client.hasAgent) await this.d.issueOfferLink(dealId);
         }
         return;
       case 'SENT':

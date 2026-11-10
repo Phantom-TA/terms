@@ -15,6 +15,7 @@ import { EventBus } from './http/events.js';
 import { SessionService } from './http/session.js';
 import { type Logger } from './logger.js';
 import { NegotiationEngine } from './negotiation/engine.js';
+import { OfferTokens } from './offers/offer-tokens.js';
 import { InvoiceService } from './paypal/invoice-service.js';
 import { PaymentService } from './paypal/payment-service.js';
 import { PayPalRestClient } from './paypal/rest-client.js';
@@ -48,6 +49,8 @@ export interface Services {
   events: EventBus;
   sessions: SessionService;
   ledger: WriteLedger;
+  /** Signed offer links for clients without an agent. */
+  offerTokens: OfferTokens;
   /** Executes approved plans in the background (serialized per plan). */
   runner: DealRunner;
   /** Publishes deal.updated for deals after their change has committed. */
@@ -81,6 +84,7 @@ export function buildServices(
   // Sessions run on the wall clock, never a business clock override.
   const sessions = new SessionService(db);
   const ledger = new WriteLedger(now);
+  const offerTokens = new OfferTokens(config.offerTokenSecret, config.appBaseUrl, now);
 
   let paypal: PayPalServices | null = null;
   if (config.paypal.configured) {
@@ -142,6 +146,28 @@ export function buildServices(
     events,
     logger,
     publishDeals,
+    issueOfferLink: async (dealId) => {
+      const deal = await db.deal.findUniqueOrThrow({
+        where: { id: dealId },
+        include: {
+          client: true,
+          invoice: true,
+          plan: { select: { goal: { select: { supplierId: true } } } },
+        },
+      });
+      const expiresAt = deal.expiresAt ?? new Date(now().getTime() + 48 * 60 * 60 * 1000);
+      const { url } = await offerTokens.issue(db, dealId, expiresAt);
+      // The owner shares the link with the client's person; both see it in their audit trail.
+      await audit.write(db, {
+        actor: 'SYSTEM',
+        action: 'NEGOTIATION_MESSAGE',
+        subjectType: 'DEAL',
+        subjectId: dealId,
+        businessIds: [deal.plan.goal.supplierId, deal.clientId],
+        summary: `Offer link for ${deal.client.name}, invoice ${deal.invoice.number}`,
+        details: { offerUrl: url, expiresAt },
+      });
+    },
     paypal:
       paypal === null
         ? null
@@ -166,6 +192,7 @@ export function buildServices(
     events,
     sessions,
     ledger,
+    offerTokens,
     runner,
     publishDeals,
     paypal,
