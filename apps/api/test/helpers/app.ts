@@ -21,7 +21,7 @@ const built: Services[] = [];
 
 export async function settleApps(): Promise<void> {
   const apps = built.splice(0);
-  await Promise.all(apps.map((s) => s.runner.drain()));
+  await Promise.all(apps.map((s) => Promise.all([s.runner.drain(), s.explainer?.settle()])));
 }
 
 export function testApp(db: Db, options: TestAppOptions = {}) {

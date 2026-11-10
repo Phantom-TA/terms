@@ -28,6 +28,7 @@ import { SyncService } from './paypal/sync-service.js';
 import { VaultService } from './paypal/vault-service.js';
 import { WebhookService } from './paypal/webhook-service.js';
 import { WriteLedger } from './paypal/write-ledger.js';
+import { PlanExplainer } from './plans/plan-explainer.js';
 import { PlanService } from './plans/plan-service.js';
 
 export interface PayPalServices {
@@ -52,6 +53,8 @@ export interface Services {
   goals: GoalService;
   /** The AI roles, or null when no AI is configured (every role then has a fallback). */
   ai: AiServices | null;
+  /** Fills plan rows' explanations in the background; null without AI. */
+  explainer: PlanExplainer | null;
   engine: NegotiationEngine;
   events: EventBus;
   sessions: SessionService;
@@ -106,6 +109,7 @@ export function buildServices(
   // Sessions run on the wall clock, never a business clock override.
   const sessions = new SessionService(db);
   const ledger = new WriteLedger(now);
+  const explainer = ai === null ? null : new PlanExplainer(db, plans, ai.explainer, events, logger);
   const offerTokens = new OfferTokens(config.offerTokenSecret, config.appBaseUrl, now);
 
   let paypal: PayPalServices | null = null;
@@ -121,7 +125,7 @@ export function buildServices(
       settlement,
       vault: new VaultService(db, sdk, ledger, audit, config.appBaseUrl),
       payments: new PaymentService(db, sdk, ledger, audit, deals, invoices, now),
-      sync: new SyncService(db, rest, sdk, audit, now),
+      sync: new SyncService(db, rest, sdk, audit, now, ai?.labeller ?? null),
       webhooks: new WebhookService(db, rest, ledger, audit, settlement, {
         webhookId: config.paypal.webhookId,
         ...(overrides.fetchCert === undefined ? {} : { fetchCert: overrides.fetchCert }),
@@ -215,6 +219,7 @@ export function buildServices(
     plans,
     goals,
     ai,
+    explainer,
     engine,
     events,
     sessions,
