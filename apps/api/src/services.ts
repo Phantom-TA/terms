@@ -3,6 +3,8 @@
  * deal changes become live events). The HTTP layer receives this container; tests build it with a
  * test database and a fake PayPal.
  */
+import { type AiServices, buildAiServices } from './ai/index.js';
+import { type AiRunner, buildAiRunner } from './ai/runner.js';
 import { ApprovalService } from './approvals/approval-service.js';
 import { AuditLogger } from './audit.js';
 import { type Config } from './config.js';
@@ -47,6 +49,8 @@ export interface Services {
   approvals: ApprovalService;
   plans: PlanService;
   goals: GoalService;
+  /** The AI roles, or null when no AI is configured (every role then has a fallback). */
+  ai: AiServices | null;
   engine: NegotiationEngine;
   events: EventBus;
   sessions: SessionService;
@@ -63,6 +67,8 @@ export interface Services {
 
 export interface ServiceOverrides {
   now?: () => Date;
+  /** Test seam: the AI runner. Omitted: built from the configuration. Null: no AI at all. */
+  aiRunner?: AiRunner | null;
   /** Test seam: the fake PayPal transport for both the SDK and the REST client. */
   paypalFetch?: typeof globalThis.fetch;
   /** Test seam: PayPal's signing certificate for local webhook verification. */
@@ -80,7 +86,10 @@ export function buildServices(
   const deals = new DealStore(db, audit);
   const approvals = new ApprovalService(db, audit, now);
   const plans = new PlanService(db, audit, deals, now);
-  const goals = new GoalService(db, audit, now);
+  const ai = buildAiServices(
+    overrides.aiRunner === undefined ? buildAiRunner(config.llm, logger) : overrides.aiRunner,
+  );
+  const goals = new GoalService(db, audit, now, ai?.goals ?? null);
   const engine = new NegotiationEngine(db, audit, deals, approvals, now);
   const events = new EventBus(db, now);
   // Sessions run on the wall clock, never a business clock override.
@@ -194,6 +203,7 @@ export function buildServices(
     approvals,
     plans,
     goals,
+    ai,
     engine,
     events,
     sessions,
