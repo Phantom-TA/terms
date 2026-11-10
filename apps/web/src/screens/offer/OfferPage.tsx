@@ -207,13 +207,12 @@ function OpenOffer({ token, offer, onReplied }: OpenOfferProps) {
           <form
             onSubmit={submitPart}
             noValidate
-            className="flex flex-wrap items-end gap-2 rounded-md border border-rule bg-surface p-4"
+            className="space-y-3 rounded-md border border-rule bg-surface p-4"
           >
             <Field
               label="Amount to pay now, before the discount"
               hint={`From ${formatMoney(offer.minPartial ?? '0.01')}. You get ${formatPercent(offer.terms.discountPct)} off this part; the rest stays due on ${formatDate(offer.originalDueDate)}.`}
               error={partError}
-              className="min-w-60 flex-1"
             >
               {(control) => (
                 <Input

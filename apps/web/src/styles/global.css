@@ -62,3 +62,9 @@
 .terms-saving {
   opacity: 0.55;
 }
+
+/* Wrapped grid text reads as a paragraph, not lines a whole row-height apart. */
+.terms-wrap {
+  line-height: 1.45;
+  padding-block: 0.625rem;
+}

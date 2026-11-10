@@ -62,6 +62,7 @@ const COLUMNS: ColDef<AuditEntry>[] = [
     minWidth: 280,
     wrapText: true,
     autoHeight: true,
+    cellClass: 'terms-wrap',
     valueGetter: (p) => p.data?.summary,
   },
   {
