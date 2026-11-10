@@ -15,17 +15,25 @@ declare global {
 const senders = new Set<(event: ServerEvent) => void>();
 
 /** The stream handler lives here because it needs EventSource, which only the browser has. */
-const streamHandler = sse<Record<ServerEventType, string>>(paths.stream(), ({ client }) => {
-  senders.add((event) => {
-    client.send({ id: event.id, event: event.type, data: JSON.stringify(event) });
-  });
-  const id = `mock-${Date.now().toString()}`;
-  client.send({
-    id,
-    event: 'heartbeat',
-    data: JSON.stringify({ id, type: 'heartbeat', at: new Date().toISOString(), data: {} }),
-  });
-});
+const streamHandler = sse<Record<ServerEventType, string>>(
+  paths.stream(),
+  ({ client, request }) => {
+    const sender = (event: ServerEvent) => {
+      client.send({ id: event.id, event: event.type, data: JSON.stringify(event) });
+    };
+    senders.add(sender);
+    // A closed stream (a reconnect, or leaving for PayPal) can't be written to any more.
+    request.signal.addEventListener('abort', () => {
+      senders.delete(sender);
+    });
+    const id = `mock-${Date.now().toString()}`;
+    client.send({
+      id,
+      event: 'heartbeat',
+      data: JSON.stringify({ id, type: 'heartbeat', at: new Date().toISOString(), data: {} }),
+    });
+  },
+);
 
 window.__termsMockEmit = (event) => {
   for (const send of senders) send(event);

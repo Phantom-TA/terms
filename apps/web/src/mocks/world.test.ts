@@ -293,9 +293,9 @@ describe('the demo negotiation', () => {
 
   it('records which PayPal call each settlement step made', () => {
     started();
-    expect(world.auditFor('deal_juniper').map((e) => e.paypalCall)).toEqual([
-      'PUT /v2/invoicing/invoices/{id}',
-    ]);
+    expect(
+      world.auditFor('deal_juniper').flatMap((e) => (e.paypalCall ? [e.paypalCall] : [])),
+    ).toEqual(['PUT /v2/invoicing/invoices/{id}']);
   });
 });
 

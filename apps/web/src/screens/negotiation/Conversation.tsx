@@ -8,7 +8,7 @@ import { DealStatePill, Money } from '../../ui/finance';
 import { PendingNotice } from '../../ui/PendingNotice';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { useDeal } from '../workbench/queries';
-import { ApprovalCard } from './ApprovalCard';
+import { ApprovalCard } from '../approvals/ApprovalCard';
 import { isSupplierMessage, MessageCard } from './MessageCard';
 import { SettlementSteps } from './SettlementSteps';
 

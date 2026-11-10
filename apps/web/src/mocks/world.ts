@@ -128,6 +128,11 @@ function specFor(invoiceId: string): InvoiceSpec {
   return INVOICES.find((s) => s.id === invoiceId) ?? bad(`Unknown invoice ${invoiceId}`);
 }
 
+/** Every client Maya invoices, as references. */
+export function clientRefs(): BusinessRef[] {
+  return INVOICES.map(clientRef);
+}
+
 export class PolicyBlockedError extends Error {
   constructor(readonly checks: PolicyCheckView[]) {
     super('Blocked by policy.');
@@ -143,10 +148,10 @@ export class MockWorld {
   goal: Goal | null = null;
   plan: Plan | null = null;
   readonly deals = new Map<string, DealSummary>();
-  private readonly messages = new Map<string, NegotiationMessage[]>();
-  private readonly history = new Map<string, DealTransition[]>();
-  private readonly approvals = new Map<string, ApprovalView>();
-  private readonly auditLog: AuditEntry[] = [];
+  readonly messages = new Map<string, NegotiationMessage[]>();
+  readonly history = new Map<string, DealTransition[]>();
+  readonly approvals = new Map<string, ApprovalView>();
+  readonly auditLog: AuditEntry[] = [];
   private eventSeq = 0;
   private nowSeq = 0;
 
@@ -198,6 +203,7 @@ export class MockWorld {
     this.goal = goal;
     this.plan = null;
     this.deals.clear();
+    this.log('GOAL_PARSED', `Goal read from: “${text}”`, 'SYSTEM', 'GOAL', goal.id);
     return goal;
   }
 
@@ -347,6 +353,13 @@ export class MockWorld {
     this.plan = plan;
     this.goal = { ...goal, status: 'PLANNED', updatedAt: this.stamp() };
     this.deals.clear();
+    this.log(
+      'PLAN_CREATED',
+      `Plan commits ${formatMoney(plan.summary.plannedCommitted)} for ${formatMoney(plan.summary.plannedCost)}.`,
+      'SYSTEM',
+      'PLAN',
+      plan.id,
+    );
     return plan;
   }
 
@@ -571,6 +584,13 @@ export class MockWorld {
       throw new PolicyBlockedError(checks);
     }
     next.policyChecks = checks;
+    this.log(
+      'PLAN_ITEM_EDITED',
+      `You changed the row for ${s.clientName}.`,
+      'OWNER',
+      'PLAN_ITEM',
+      itemId,
+    );
 
     const items = plan.items.map((i) => (i.id === itemId ? next : i));
     this.plan = { ...plan, items, summary: this.summaryFor(goal, items, plan.costCeiling) };
@@ -596,6 +616,13 @@ export class MockWorld {
       summary: this.summaryFor(goal, items, costCeiling),
     };
     this.goal = { ...goal, status: 'ACTIVE' };
+    this.log(
+      'PLAN_APPROVED',
+      `You approved the plan with a ${formatMoney(costCeiling)} ceiling.`,
+      'OWNER',
+      'PLAN',
+      this.plan.id,
+    );
     return this.plan;
   }
 
@@ -642,6 +669,14 @@ export class MockWorld {
       updatedAt: this.stamp(),
     };
     this.deals.set(itemId, next);
+    this.log(
+      'DEAL_TRANSITION',
+      `${deal.client.name}: ${deal.state.toLowerCase()} → ${state.toLowerCase()}. ${reason}`,
+      actor,
+      'DEAL',
+      deal.id,
+      deal.id,
+    );
     return this.event('deal.updated', { deal: next });
   }
 
@@ -677,7 +712,43 @@ export class MockWorld {
     };
     list.push(message);
     this.messages.set(deal.id, list);
+    this.log(
+      'NEGOTIATION_MESSAGE',
+      `${side === 'supplier' ? 'Your agent' : `${s.clientName}’s agent`}: ${type.toLowerCase()}.`,
+      message.actor,
+      'DEAL',
+      deal.id,
+      deal.id,
+    );
     return this.event('negotiation.message', { message });
+  }
+
+  /** Writes an audit entry for a step that isn't a PayPal call. */
+  log(
+    action: AuditAction,
+    summary: string,
+    actor: Actor,
+    subjectType: AuditEntry['subjectType'],
+    subjectId: string,
+    dealId: string | null = null,
+  ): AuditEntry {
+    const entry: AuditEntry = {
+      id: `audit_${this.auditLog.length + 1}`,
+      at: this.stamp(),
+      actor,
+      action,
+      subjectType,
+      subjectId,
+      summary,
+      details: {},
+      paypalDebugId: null,
+      paypalRequestId: null,
+      webhookVerified: null,
+      paypalCall: null,
+      dealId,
+    };
+    this.auditLog.push(entry);
+    return entry;
   }
 
   private record(
@@ -942,6 +1013,25 @@ export class MockWorld {
     };
     this.approvals.set(approvalId, approval);
     const events: ServerEvent[] = [this.event('approval.decided', { approval })];
+    if (approval.type === 'CLIENT_PAYMENT') {
+      this.log(
+        'APPROVAL_DECIDED',
+        `A person at the client ${decision === 'APPROVED' ? 'approved' : 'rejected'} the payment.`,
+        'CLIENT_HUMAN',
+        'APPROVAL',
+        approval.id,
+        approval.dealId,
+      );
+      return { approval, events };
+    }
+    this.log(
+      'APPROVAL_DECIDED',
+      `You ${decision === 'APPROVED' ? 'approved' : 'rejected'}: ${approval.title}.`,
+      'OWNER',
+      'APPROVAL',
+      approval.id,
+      approval.dealId,
+    );
     const deal = [...this.deals.values()].find((d) => d.id === approval.dealId) ?? bad('No deal');
     const s = specFor(deal.invoiceId);
 

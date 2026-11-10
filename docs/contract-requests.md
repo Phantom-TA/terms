@@ -46,3 +46,19 @@ Add to `.github/workflows/ci.yml`, after "Test with coverage":
 ```
 
 The Render build also needs `apps/web` built, with `dist` served by the API for non-`/api` routes, including `/offer/:token`.
+
+## CR-4: the pages PayPal returns a client to, and who sees which audit entries
+
+**Status:** open.
+
+1. A's vault service sends PayPal `${APP_BASE_URL}/client/vault/return` and `/client/vault/cancel`. The web app has both pages (the return page reads `approval_token_id`), but they are not in `webPaths`, so the two sides could drift. The deployed server must also serve the app for these paths, as for `/offer/:token`.
+
+```ts
+// packages/shared/src/routes.ts, webPaths
+vaultReturn: () => '/client/vault/return',
+vaultCancel: () => '/client/vault/cancel',
+```
+
+2. A client payment approved in Terms returns `paypalApprovalUrl` from `POST /api/approvals/:id/decision`. Which page should PayPal send the person back to? The web app assumes `/approvals`. If it should be another page, please add it to `webPaths` too.
+
+3. `GET /api/audit` says each business sees entries about its own records. Please confirm what a client sees on a deal it shares with the owner. The mock shows a client the negotiation messages, its own side's steps and PayPal's steps, but not the owner's approvals or the supplier agent's reasons (for example, that a counter goes over the owner's ceiling), and shows the owner no client's policy or saved-method entries.
