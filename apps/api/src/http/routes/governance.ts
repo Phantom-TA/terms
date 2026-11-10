@@ -10,8 +10,11 @@ import { clientPolicyView, supplierPolicyView } from '../views.js';
 
 export function registerGovernanceRoutes(router: Router, s: Services): void {
   const publishApproval = async (approval: Approval, view: ApprovalView) => {
-    const audience = [approval.businessId, ...(await s.approvals.visibleTo(s.db, approval))];
-    await s.events.publish(audience, { type: 'approval.decided', data: { approval: view } });
+    // An approval is its addressee's business; the other side follows the deal (deal.updated).
+    await s.events.publish([approval.businessId], {
+      type: 'approval.decided',
+      data: { approval: view },
+    });
   };
 
   route(router, s.sessions, endpoints.listApprovals, async ({ query, session }) => ({

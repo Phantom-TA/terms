@@ -82,7 +82,7 @@ describe('ApprovalService (Postgres)', () => {
     const list = await approvals.list(db, ids.maya, { decision: 'PENDING' });
     expect(list.map((x) => x.id)).toEqual([a.id]);
     expect(await approvals.list(db, ids.harbor, {})).toEqual([]);
-    // Both parties see the request in their audit trail.
+    // A business named in visibleTo sees the request in its audit trail too.
     expect((await audit.list(db, ids.harbor, { limit: 5 })).entries[0]!.action).toBe(
       'APPROVAL_REQUESTED',
     );
@@ -123,6 +123,13 @@ describe('ApprovalService (Postgres)', () => {
     expect(decided.decision).toBe('APPROVED');
     expect(decided.decisionNote).toBe('Fine, $1 over');
     expect((await deals.get(db, dealId)).state).toBe('SENT');
+    // The decision, and its note, belong to the business that made it.
+    const decidedBy = (business: string) =>
+      audit
+        .list(db, business, { limit: 50, action: 'APPROVAL_DECIDED' })
+        .then((r) => r.entries.map((e) => e.summary));
+    expect(await decidedBy(ids.maya)).toHaveLength(1);
+    expect(await decidedBy(ids.harbor)).toEqual([]);
 
     await expect(
       approvals.decide({
@@ -203,5 +210,14 @@ describe('ApprovalService (Postgres)', () => {
     const row = await db.approval.findUniqueOrThrow({ where: { id: payment.id } });
     expect(row).toMatchObject({ decision: 'WITHDRAWN', decisionNote: 'Goal met' });
     expect(await approvals.list(db, ids.harbor, { type: 'CLIENT_PAYMENT' })).toHaveLength(1);
+    // Only the addressee reads the withdrawal.
+    const withdrawn = (business: string) =>
+      audit
+        .list(db, business, { limit: 50, action: 'APPROVAL_DECIDED' })
+        .then((r) => r.entries.map((e) => e.summary));
+    expect(await withdrawn(ids.harbor)).toEqual([
+      'Approve $1,729.00 to Maya Studio: withdrawn (Goal met)',
+    ]);
+    expect(await withdrawn(ids.maya)).toEqual([]);
   });
 });
