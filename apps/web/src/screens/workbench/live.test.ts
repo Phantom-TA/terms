@@ -117,6 +117,26 @@ describe('applyDealUpdated', () => {
     expect(row.planItem?.dealState).toBe('AWAITING_PAYMENT');
   });
 
+  it('does not let a late event rewind the row', () => {
+    const row = invoices.rows.find((r) => r.id === 'inv_juniper')!;
+    const current = {
+      ...invoices,
+      rows: [
+        {
+          ...row,
+          deal: { ...row.deal!, state: 'AGREED' as const, updatedAt: '2026-11-09T13:00:00Z' },
+        },
+      ],
+    };
+    const next = applyDealUpdated(current, {
+      id: 'late',
+      type: 'deal.updated',
+      at: AT,
+      data: { deal: { ...row.deal!, state: 'SENT', updatedAt: '2026-11-09T12:00:00Z' } },
+    })!;
+    expect(next.rows[0]?.deal?.state).toBe('AGREED');
+  });
+
   it('leaves other invoices untouched', () => {
     const deal = { ...world.invoiceRows()[0]!.deal!, state: 'DECLINED' as const };
     const next = applyDealUpdated(invoices, {

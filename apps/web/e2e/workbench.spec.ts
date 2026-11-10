@@ -86,6 +86,11 @@ test.describe('Workbench', () => {
     await expect(cell(page, 'inv_pinecrest', 'contact')).toContainText('Do not contact');
     await expect(cell(page, 'inv_birch', 'contact')).toContainText('Do not contact');
 
+    // The server's policy checks: protected clients are blocked, the rest pass.
+    await expect(cell(page, 'inv_pinecrest', 'policy')).toContainText('Do not contact');
+    await expect(cell(page, 'inv_pinecrest', 'policy')).toContainText('blocked');
+    await expect(cell(page, 'inv_juniper', 'policy')).toContainText(/All \d+ passed/);
+
     // Pinned summary row, from the server's totals. Nothing is committed yet.
     await expect(pinnedTotal(page, 'cost')).toHaveText('$54.00');
     await expect(pinnedTotal(page, 'committed')).toHaveText('$0.00');
@@ -118,6 +123,7 @@ test.describe('Workbench', () => {
     await expect(status).toContainText('$1.00 over the $60.00 ceiling');
     await expect(cell(page, 'inv_harbor', 'discount')).toContainText('1.2%');
     await expect(pinnedTotal(page, 'cost')).toHaveText('$61.00');
+    await expect(cell(page, 'inv_harbor', 'policy')).toContainText('needs approval');
   });
 
   test('changes an action with the select, and the row moves group', async ({ page }) => {

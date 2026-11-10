@@ -1,5 +1,6 @@
 import { type DealDetail, type NegotiationMessage } from '@terms/shared';
 import { type CustomCellRendererProps } from 'ag-grid-react';
+import { Link } from 'react-router-dom';
 import { formatDateTime, formatPercent } from '../../lib/display';
 import { ErrorState } from '../../ui/ErrorState';
 import { Money, PolicyBadges, ProtectedTag } from '../../ui/finance';
@@ -123,6 +124,12 @@ export function DetailPanel({ data }: CustomCellRendererProps<AnyRow>) {
             {item.editedByOwner ? (
               <p className="text-sm text-ink-3">You changed this row.</p>
             ) : null}
+            {item.policyChecks.length > 0 ? (
+              <div className="pt-1">
+                <h3 className="text-base">Policy checks</h3>
+                <PolicyBadges checks={item.policyChecks} />
+              </div>
+            ) : null}
             {data.invoice.backups.length > 0 ? (
               <div className="pt-1">
                 <h3 className="text-base">If another offer is declined</h3>
@@ -145,6 +152,14 @@ export function DetailPanel({ data }: CustomCellRendererProps<AnyRow>) {
       <section aria-label="Negotiation" className="space-y-2">
         <h2 className="text-md">What has been said</h2>
         <Transcript row={data} />
+        {data.dealId && !data.bestEffort ? (
+          <Link
+            to={`/negotiation?deal=${encodeURIComponent(data.dealId)}`}
+            className="inline-block text-sm font-medium text-ink underline underline-offset-2"
+          >
+            Open in the Negotiation Room
+          </Link>
+        ) : null}
       </section>
     </div>
   );

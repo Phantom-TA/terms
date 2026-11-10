@@ -1,7 +1,15 @@
 import {
   type ApiErrorBody,
+  type BusinessSummary,
   CreateGoalRequest,
-  type DealDetail,
+  ListAuditQuery,
+  ListClientOffersQuery,
+  OfferReplyRequest,
+  PutClientPolicyRequest,
+  PutSupplierPolicyRequest,
+  VaultConfirmRequest,
+  DecideApprovalRequest,
+  type ServerEvent,
   type ErrorCode,
   ERROR_HTTP_STATUS,
   endpoints,
@@ -12,7 +20,8 @@ import {
 } from '@terms/shared';
 import { delay, http, HttpResponse } from 'msw';
 import { businesses, health, sessionFor } from './fixtures';
-import { MockWorld, PolicyBlockedError, ShapeError, SUPPLIER_POLICY } from './world';
+import { DeskValidationError, MockDesk, TokenError } from './desk';
+import { MockWorld, PolicyBlockedError, ShapeError } from './world';
 
 const SESSION_KEY = 'terms.mock.session';
 /** Set this sessionStorage key to a number of ms to slow plan edits down, for overlap tests. */
@@ -21,13 +30,25 @@ export const MOCK_SLOW_EDIT_KEY = 'terms.mock.slowEdit';
 export const MOCK_FAILURE_KEY = 'terms.mock.fail';
 
 let world = new MockWorld();
+let desk = new MockDesk(() => world);
+
+/** Set by the browser mock, which is the only place with an event stream to push to. */
+export const mockHooks: {
+  emit?: (events: ServerEvent[]) => void;
+  onPlanApproved?: () => void;
+} = {};
+
 /** Gives a test (or a page reload) a fresh demo scenario. */
 export function resetWorld(): MockWorld {
   world = new MockWorld();
+  desk = new MockDesk(() => world);
   return world;
 }
 export function currentWorld(): MockWorld {
   return world;
+}
+export function currentDesk(): MockDesk {
+  return desk;
 }
 
 function errorResponse(
@@ -66,6 +87,40 @@ function paypalFailure() {
     },
   };
   return HttpResponse.json(body, { status: 502 });
+}
+
+function sessionBusiness(): BusinessSummary | null {
+  const id = sessionStorage.getItem(SESSION_KEY);
+  return id === null ? null : (sessionFor(id)?.business ?? null);
+}
+
+/** Client routes need a session as a client, as on the real API. */
+function clientGuard(): { business: BusinessSummary } | { denied: Response } {
+  const business = sessionBusiness();
+  if (!business) return { denied: errorResponse('UNAUTHENTICATED', 'No demo session.') };
+  if (business.role !== 'CLIENT') {
+    return { denied: errorResponse('FORBIDDEN', 'Only a client can do this.') };
+  }
+  return { business };
+}
+
+/** Runs a desk call, answering its refusals as the API would rather than as a network failure. */
+function fromDesk(run: () => Response): Response {
+  try {
+    return run();
+  } catch (error) {
+    return deskError(error);
+  }
+}
+
+function deskError(error: unknown) {
+  if (error instanceof TokenError) return errorResponse('TOKEN_INVALID', error.message);
+  if (error instanceof DeskValidationError)
+    return errorResponse('VALIDATION_FAILED', error.message);
+  return errorResponse(
+    'CONFLICT',
+    error instanceof Error ? error.message : 'That can’t be done now.',
+  );
 }
 
 /** Owner routes need a session as the supplier, as on the real API. */
@@ -185,7 +240,9 @@ export const handlers = [
     if (shouldFail()) return paypalFailure();
     const body = ApprovePlanRequest.safeParse(await request.json());
     if (!body.success) return errorResponse('VALIDATION_FAILED', 'Set a cost ceiling.');
-    return HttpResponse.json({ plan: world.approve(body.data.costCeiling) });
+    const plan = world.approve(body.data.costCeiling);
+    mockHooks.onPlanApproved?.();
+    return HttpResponse.json({ plan });
   }),
 
   http.get(endpoints.listInvoices.path, () => {
@@ -211,7 +268,7 @@ export const handlers = [
   http.get(endpoints.getSupplierPolicy.path, () => {
     const denied = ownerGuard();
     if (denied) return denied;
-    return HttpResponse.json({ policy: SUPPLIER_POLICY });
+    return HttpResponse.json({ policy: desk.supplierPolicy });
   }),
 
   http.get(endpoints.listDeals.path, () => {
@@ -224,30 +281,166 @@ export const handlers = [
   }),
 
   http.get(endpoints.getDeal.path, ({ params }) => {
-    const deal = [...world.deals.values()].find((d) => d.id === params['dealId']);
-    if (!deal) return errorResponse('NOT_FOUND', 'That deal does not exist.');
-    const detail: DealDetail = {
-      ...deal,
-      paypal: {
-        invoiceId: `INV2-${deal.invoiceNumber}-SBOX-0000-0000`,
-        reissuedInvoiceId: null,
-        orderId: null,
-        captureId: null,
-        invoicePaymentId: null,
-        payerUrl: null,
-      },
-      messages: [],
-      history: [
-        {
-          from: null,
-          to: 'SUGGESTED',
-          actor: 'SYSTEM',
-          reason: 'Added to the plan.',
-          at: deal.updatedAt,
-        },
-      ],
-      approvals: [],
-    };
-    return HttpResponse.json(detail);
+    const detail = world.dealDetail(String(params['dealId']));
+    return detail
+      ? HttpResponse.json(detail)
+      : errorResponse('NOT_FOUND', 'That deal does not exist.');
+  }),
+
+  http.get(endpoints.listAudit.path, ({ request }) => {
+    const business = sessionBusiness();
+    if (!business) return errorResponse('UNAUTHENTICATED', 'No demo session.');
+    if (shouldFail()) return paypalFailure();
+    const query = ListAuditQuery.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+    if (!query.success) return errorResponse('VALIDATION_FAILED', 'Invalid audit filter.');
+    return HttpResponse.json(desk.audit(business, query.data));
+  }),
+
+  http.get(endpoints.listApprovals.path, () => {
+    const business = sessionBusiness();
+    if (!business) return errorResponse('UNAUTHENTICATED', 'No demo session.');
+    if (shouldFail()) return paypalFailure();
+    return HttpResponse.json({ approvals: desk.approvalsFor(business) });
+  }),
+
+  http.put(endpoints.putSupplierPolicy.path, async ({ request }) => {
+    const denied = ownerGuard();
+    if (denied) return denied;
+    const body = PutSupplierPolicyRequest.safeParse(await request.json());
+    if (!body.success)
+      return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid');
+    return fromDesk(() => HttpResponse.json({ policy: desk.putSupplierPolicy(body.data) }));
+  }),
+
+  http.get(endpoints.getClientPolicy.path, () => {
+    const session = clientGuard();
+    if ('denied' in session) return session.denied;
+    if (shouldFail()) return paypalFailure();
+    try {
+      return HttpResponse.json({ policy: desk.clientPolicy(session.business.id) });
+    } catch (error) {
+      return deskError(error);
+    }
+  }),
+
+  http.put(endpoints.putClientPolicy.path, async ({ request }) => {
+    const session = clientGuard();
+    if ('denied' in session) return session.denied;
+    const body = PutClientPolicyRequest.safeParse(await request.json());
+    if (!body.success)
+      return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid');
+    return fromDesk(() =>
+      HttpResponse.json({ policy: desk.putClientPolicy(session.business.id, body.data) }),
+    );
+  }),
+
+  http.get(endpoints.listClientOffers.path, ({ request }) => {
+    const session = clientGuard();
+    if ('denied' in session) return session.denied;
+    if (shouldFail()) return paypalFailure();
+    const query = ListClientOffersQuery.safeParse(
+      Object.fromEntries(new URL(request.url).searchParams),
+    );
+    if (!query.success) return errorResponse('VALIDATION_FAILED', 'Invalid offer filter.');
+    return fromDesk(() =>
+      HttpResponse.json({
+        offers: desk.clientOffers(session.business.id, query.data.status),
+        cashPosition: desk.cashPosition(session.business.id),
+      }),
+    );
+  }),
+
+  http.get(endpoints.getClientVault.path, () => {
+    const session = clientGuard();
+    if ('denied' in session) return session.denied;
+    return fromDesk(() => HttpResponse.json({ vault: desk.vault(session.business.id) }));
+  }),
+
+  http.post(endpoints.clientVaultSetup.path, ({ request }) => {
+    const session = clientGuard();
+    if ('denied' in session) return session.denied;
+    if (shouldFail()) return paypalFailure();
+    return fromDesk(() =>
+      HttpResponse.json(desk.setupVault(session.business.id, new URL(request.url).origin), {
+        status: 201,
+      }),
+    );
+  }),
+
+  http.post(endpoints.clientVaultConfirm.path, async ({ request }) => {
+    const session = clientGuard();
+    if ('denied' in session) return session.denied;
+    const body = VaultConfirmRequest.safeParse(await request.json());
+    if (!body.success) return errorResponse('VALIDATION_FAILED', 'Missing the PayPal approval.');
+    try {
+      return HttpResponse.json({
+        vault: desk.confirmVault(session.business.id, body.data.setupTokenId),
+      });
+    } catch (error) {
+      return deskError(error);
+    }
+  }),
+
+  http.get(endpoints.getConnection.path, () => {
+    const denied = ownerGuard();
+    if (denied) return denied;
+    if (shouldFail()) return paypalFailure();
+    return HttpResponse.json(desk.connection());
+  }),
+
+  http.post(endpoints.sync.path, async () => {
+    const denied = ownerGuard();
+    if (denied) return denied;
+    if (shouldFail()) return paypalFailure();
+    const slow = Number(sessionStorage.getItem(MOCK_SLOW_EDIT_KEY) ?? 0);
+    if (slow > 0) await delay(slow);
+    const { sync, events } = desk.sync();
+    mockHooks.emit?.(events);
+    return HttpResponse.json(sync);
+  }),
+
+  http.get(endpoints.getPublicOffer.path, ({ params }) => {
+    if (shouldFail()) return paypalFailure();
+    try {
+      return HttpResponse.json({ offer: desk.offer(String(params['token'])) });
+    } catch (error) {
+      return deskError(error);
+    }
+  }),
+
+  http.post(endpoints.replyPublicOffer.path, async ({ request, params }) => {
+    const body = OfferReplyRequest.safeParse(await request.json());
+    if (!body.success)
+      return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid');
+    try {
+      return HttpResponse.json(desk.reply(String(params['token']), body.data));
+    } catch (error) {
+      return deskError(error);
+    }
+  }),
+
+  http.post(endpoints.decideApproval.path, async ({ request, params }) => {
+    const business = sessionBusiness();
+    if (!business) return errorResponse('UNAUTHENTICATED', 'No demo session.');
+    const target = desk.approvalsFor(business).find((a) => a.id === params['approvalId']);
+    if (!target) return errorResponse('NOT_FOUND', 'That approval is not yours to decide.');
+    if (shouldFail()) return paypalFailure();
+    const body = DecideApprovalRequest.safeParse(await request.json());
+    if (!body.success) return errorResponse('VALIDATION_FAILED', 'Choose approve or reject.');
+    try {
+      const { approval, events } = world.decideApproval(
+        String(params['approvalId']),
+        body.data.decision,
+        body.data.note ?? null,
+      );
+      mockHooks.emit?.(events);
+      const paypalApprovalUrl =
+        approval.type === 'CLIENT_PAYMENT' && approval.decision === 'APPROVED'
+          ? desk.paymentApprovalUrl(new URL(request.url).origin)
+          : null;
+      return HttpResponse.json({ approval, paypalApprovalUrl });
+    } catch (error) {
+      return errorResponse('CONFLICT', error instanceof Error ? error.message : 'Already decided.');
+    }
   }),
 ];

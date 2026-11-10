@@ -5,6 +5,8 @@ export interface ScreenDef {
   label: string;
   roles: readonly BusinessRole[];
   load: () => Promise<{ Component: React.ComponentType }>;
+  /** Reached by a link, not listed in the navigation. */
+  hidden?: boolean;
 }
 
 /**
@@ -12,16 +14,69 @@ export interface ScreenDef {
  * appears only once it exists and there are no dead links. Add a screen here when it is built.
  */
 export const screens: readonly ScreenDef[] = [
+  // First for a client, so it is the client's home.
+  {
+    path: '/payables',
+    label: 'Payables Desk',
+    roles: ['CLIENT'],
+    load: () => import('../screens/payables/PayablesDesk'),
+  },
   {
     path: '/workbench',
     label: 'Workbench',
     roles: ['SUPPLIER'],
     load: () => import('../screens/workbench/Workbench'),
   },
+  {
+    path: '/negotiation',
+    label: 'Negotiation Room',
+    roles: ['SUPPLIER'],
+    load: () => import('../screens/negotiation/NegotiationRoom'),
+  },
+  {
+    path: '/approvals',
+    label: 'Approvals',
+    roles: ['SUPPLIER', 'CLIENT'],
+    load: () => import('../screens/approvals/ApprovalsInbox'),
+  },
+  {
+    path: '/audit',
+    label: 'Audit trail',
+    roles: ['SUPPLIER', 'CLIENT'],
+    load: () => import('../screens/audit/AuditTrail'),
+  },
+  {
+    path: '/connect',
+    label: 'Connect & import',
+    roles: ['SUPPLIER'],
+    load: () => import('../screens/connect/ConnectImport'),
+  },
+  {
+    path: '/settings',
+    label: 'Settings',
+    roles: ['SUPPLIER', 'CLIENT'],
+    load: () => import('../screens/settings/Settings'),
+  },
+  // Where PayPal sends a person back after saving a payment method.
+  {
+    path: '/client/vault/return',
+    label: 'Saving your PayPal method',
+    roles: ['CLIENT'],
+    load: () => import('../screens/payables/VaultReturn'),
+    hidden: true,
+  },
+  {
+    path: '/client/vault/cancel',
+    label: 'Nothing was saved',
+    roles: ['CLIENT'],
+    load: () => import('../screens/payables/VaultCancel'),
+    hidden: true,
+  },
 ];
 
+/** The screens a business can open from the navigation. */
 export function screensFor(role: BusinessRole): readonly ScreenDef[] {
-  return screens.filter((screen) => screen.roles.includes(role));
+  return screens.filter((screen) => screen.roles.includes(role) && screen.hidden !== true);
 }
 
 /** Where a business lands after choosing a session; null if it has no screens yet. */
