@@ -6,7 +6,7 @@ Evidence commands, from `apps/web`: `pnpm gate` (typecheck, lint, format, Vitest
 
 **Everything below was tested against mocks generated from the shared schemas (`VITE_USE_MOCKS=true`). Nothing has been run against the real API yet.** A's routes are on `develop` now, but its demo seed creates real PayPal sandbox invoices, so a real run needs the sandbox app's credentials in the root `.env`. Status is PASS for the UI behaviour in mock mode and says so where the real API could change the result.
 
-**Last full run (contracts-v3 and the server's CR-4 rules, 2026-11-10):** 473 unit and component tests passed; 100 Playwright tests passed at both widths, with the AG Grid licence accepted; `pnpm build` and its mock check passed.
+**Last full run (Phase 5, Cash Studio, 2026-11-10):** 499 unit and component tests passed; 104 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
 
 ## Phase 1: design system and shell
 
@@ -119,8 +119,30 @@ All tested in mock mode against handlers that validate the shared schemas. The r
 
 **Review of Phase 4.** A code review before the pull request raised ten points. Fixed with tests: a refused part payment could reappear as a retry of the same amount; the owner could not lift a never-contact block on a client without invoices; the mock's audit showed each side the other's private records, repeated rows when paging, and recommended countering a supplier the client never pays early; the mock answered some refusals as network failures; and the client policy card was duplicated. Recorded rather than changed: the mock world restarts after the PayPal stand-in (W-040), and two test-only accessors on the mock world were kept.
 
+## Phase 5: Cash Studio
+
+Spike S6 first. AG Studio 3.1.0 runs a custom agent through `clientToolRunner`. Studio owns the loop and runs the widget tools in the page. Each round goes to `POST /api/studio/turn` through the API client. A's route is on `develop` but answers 503 `NOT_CONFIGURED` until the server-side agent exists, so the model side has not run. The browser side was tested against a scripted mock of the route that follows the contract.
+
+| Feature                                                                            | Status      | Evidence                                                                                                                                                                                                       | Limits                                                                     |
+| ---------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| S6: Studio's agent loop through `/api/studio/turn`                                 | PASS (mock) | `turnBridge.test.ts` (request matches `StudioTurnRequest`, answer becomes Studio events, errors, cancel); in the browser, a two-round turn added a chart and then configured it from Studio's own tool results | No real model yet: A's route answers `NOT_CONFIGURED`                      |
+| The strategist's tools are a hard boundary                                         | PASS        | `strategist.test.ts` (read, add, place and configure only; no delete, expressions or filters; each configure tool has its own name); Studio offers the model nothing else                                      |                                                                            |
+| Cash Studio screen: loading, error with retry, empty, Studio with the owner's data | PASS (mock) | `CashStudio.test.tsx` with axe; `studioData.test.ts`                                                                                                                                                           |                                                                            |
+| A what-if built live in the browser                                                | PASS (mock) | `studio.spec.ts` at both widths: suggestion, chart built, no console errors, no sideways scroll, axe clean                                                                                                     | The mock charts the current runway; charting the what-if itself needs CR-5 |
+| AG Studio licence                                                                  | PASS        | AG Studio Pro trial key in the root `.env`; no licence error in the console during the browser tests                                                                                                           | Trial key                                                                  |
+| Custom cost-versus-cash widget                                                     | Not started |                                                                                                                                                                                                                | Next                                                                       |
+
+**What S6 found** (W-048 to W-053):
+
+- `configureWidget` with an unknown widget type stops the run without any error. The catalogue IDs are lowercase (`line-chart`), not the type names (`AgLineChart`).
+- Studio leaves out tools that can't be called yet. The configure tools and `view_widget` are offered only once a widget exists.
+- Several `configureWidget` listings all reach the model as `configure_widget` unless each is renamed.
+- `add_widget` only places an empty widget. The data mapping comes from a second, configure round.
+- Field IDs are `table.field`, and a date axis takes a grain (`runway.date::day`).
+- Studio's default theme fails colour contrast, and its data panel fails `nested-interactive`. The theme now comes from the design tokens, and the data panel is not shown.
+
 ## Spikes
 
-| Spike                      | Status      | Notes   |
-| -------------------------- | ----------- | ------- |
-| S6: AG Studio custom agent | Not yet run | Phase 5 |
+| Spike                      | Status                                                               | Notes       |
+| -------------------------- | -------------------------------------------------------------------- | ----------- |
+| S6: AG Studio custom agent | PARTIAL: browser side passes in mock mode; the model side waits on A | See Phase 5 |
