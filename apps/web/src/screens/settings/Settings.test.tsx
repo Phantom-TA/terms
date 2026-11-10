@@ -43,6 +43,13 @@ describe('Settings for the owner', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it('offers every client for never-contact, not only those with open invoices', async () => {
+    renderSettings();
+    const never = await screen.findByRole('group', { name: 'Never contact' });
+    expect(await within(never).findByRole('checkbox', { name: 'Pinecrest Dental' })).toBeChecked();
+    expect(within(never).getByRole('checkbox', { name: 'Harbor & Co' })).not.toBeChecked();
+  });
+
   it('saves only after the server confirms', async () => {
     renderSettings();
     const max = await screen.findByLabelText('Maximum discount (%)');

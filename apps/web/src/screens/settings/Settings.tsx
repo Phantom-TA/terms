@@ -7,20 +7,24 @@ import { ErrorState } from '../../ui/ErrorState';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { useConnection } from '../connect/queries';
 import { VaultPanel } from '../payables/VaultPanel';
-import { useInvoices, useSupplierPolicy } from '../workbench/queries';
-import { ClientPolicyForm } from './ClientPolicyForm';
-import { useClientPolicy } from './queries';
+import { useSupplierPolicy } from '../workbench/queries';
+import { ClientPolicyCard } from './ClientPolicyCard';
 import { SupplierPolicyForm } from './SupplierPolicyForm';
 
 const LINK = 'font-medium text-ink underline underline-offset-2';
 
 function OwnerPolicy() {
   const policy = useSupplierPolicy();
-  const invoices = useInvoices();
-  const clients = useMemo<BusinessRef[]>(
-    () => [...new Map((invoices.data?.rows ?? []).map((r) => [r.client.id, r.client])).values()],
-    [invoices.data],
-  );
+  const businesses = useBusinesses();
+  // Every client, and any already blocked, so a block can always be lifted.
+  const clients = useMemo<BusinessRef[]>(() => {
+    const all = (businesses.data ?? [])
+      .filter((b) => b.role === 'CLIENT')
+      .map(({ id, name, slug, hasAgent }): BusinessRef => ({ id, name, slug, hasAgent }));
+    const byId = new Map(all.map((c) => [c.id, c]));
+    for (const blocked of policy.data?.doNotContact ?? []) byId.set(blocked.id, blocked);
+    return [...byId.values()];
+  }, [businesses.data, policy.data]);
   return (
     <Card
       title="Your policy"
@@ -70,28 +74,6 @@ function OwnerConnection() {
   );
 }
 
-function ClientPolicy() {
-  const policy = useClientPolicy();
-  const businesses = useBusinesses();
-  const suppliers = (businesses.data ?? []).filter((b) => b.role === 'SUPPLIER');
-  return (
-    <Card title="Your agent’s policy">
-      {policy.isPending ? <SkeletonRows rows={3} columns={2} label="Loading your policy" /> : null}
-      {policy.isError ? (
-        <ErrorState
-          title="Couldn’t load your policy"
-          error={policy.error}
-          onRetry={() => void policy.refetch()}
-          retrying={policy.isFetching}
-        />
-      ) : null}
-      {policy.data ? (
-        <ClientPolicyForm key={policy.data.updatedAt} policy={policy.data} suppliers={suppliers} />
-      ) : null}
-    </Card>
-  );
-}
-
 /** Policies, the PayPal account, and which environment this is. */
 export function Component() {
   const session = useSession();
@@ -114,7 +96,7 @@ export function Component() {
         </>
       ) : (
         <>
-          <ClientPolicy />
+          <ClientPolicyCard />
           <VaultPanel />
         </>
       )}

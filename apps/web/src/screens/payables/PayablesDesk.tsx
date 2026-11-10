@@ -1,14 +1,11 @@
 import { formatMoney } from '@terms/shared';
 import { lazy, Suspense, useState } from 'react';
-import { useBusinesses } from '../../app/session';
-import { Card } from '../../ui/Card';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
 import { SkeletonRows } from '../../ui/Skeleton';
 import { ApprovalCard } from '../approvals/ApprovalCard';
 import { pendingApprovals, useApprovals } from '../approvals/queries';
-import { ClientPolicyForm } from '../settings/ClientPolicyForm';
-import { useClientPolicy } from '../settings/queries';
+import { ClientPolicyCard } from '../settings/ClientPolicyCard';
 import { type OfferStatus, useClientOffers, usePayablesLive } from './queries';
 import { VaultPanel } from './VaultPanel';
 
@@ -27,31 +24,6 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
       <dd className="figures font-display text-xl text-ink">{value}</dd>
       <dd className="text-sm text-ink-3">{hint}</dd>
     </div>
-  );
-}
-
-function PolicyCard() {
-  const policy = useClientPolicy();
-  const businesses = useBusinesses();
-  const suppliers = (businesses.data ?? []).filter((b) => b.role === 'SUPPLIER');
-  return (
-    <Card
-      title="Your agent’s policy"
-      description="Checked in code on every offer before your agent answers."
-    >
-      {policy.isPending ? <SkeletonRows rows={2} columns={2} label="Loading your policy" /> : null}
-      {policy.isError ? (
-        <ErrorState
-          title="Couldn’t load your policy"
-          error={policy.error}
-          onRetry={() => void policy.refetch()}
-          retrying={policy.isFetching}
-        />
-      ) : null}
-      {policy.data ? (
-        <ClientPolicyForm key={policy.data.updatedAt} policy={policy.data} suppliers={suppliers} />
-      ) : null}
-    </Card>
   );
 }
 
@@ -156,7 +128,7 @@ export function Component() {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <PolicyCard />
+        <ClientPolicyCard />
         <VaultPanel />
       </div>
     </div>
