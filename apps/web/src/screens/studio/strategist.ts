@@ -14,6 +14,7 @@ export const CONFIGURABLE_WIDGETS = {
   'line-chart': 'configure_line_chart',
   'column-chart-grouped': 'configure_column_chart',
   value: 'configure_value',
+  'cost-cash-curve': 'configure_cost_curve',
 } as const;
 
 /**
@@ -46,6 +47,11 @@ export const promptStarters: AgAiPromptStarter[] = [
   },
   { label: 'Who owes me most', prompt: 'Chart what each client owes me, largest first.' },
   { label: 'Cash before and after', prompt: 'Show my cash runway before and after the plan.' },
+  {
+    label: 'What early cash costs',
+    prompt:
+      'Draw the cost versus cash curve for my plan: what each extra dollar of early cash costs.',
+  },
 ];
 
 /**

@@ -19,17 +19,25 @@ vi.mock('ag-studio', () => ({
   studioTheme: { withParams: (params: object) => params },
 }));
 vi.mock('ag-studio-react', () => ({
+  createWidgets: (config: unknown) => config,
   AgStudioProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   AgStudio: ({
     data,
     mode,
     ai,
+    widgets,
   }: {
     data: { sources: { id: string; data: unknown[] }[] };
     mode: string;
     ai: unknown;
+    widgets: { additionalTypes: { id: string }[] };
   }) => (
-    <section aria-label="Studio" data-mode={mode} data-ai={typeof ai}>
+    <section
+      aria-label="Studio"
+      data-mode={mode}
+      data-ai={typeof ai}
+      data-widgets={widgets.additionalTypes.map((w) => w.id).join(',')}
+    >
       {data.sources.map((s) => (
         <p key={s.id}>
           {s.id}: {s.data.length} rows
@@ -120,6 +128,7 @@ describe('Cash Studio', () => {
     const studio = await screen.findByRole('region', { name: 'Studio' });
     expect(studio).toHaveAttribute('data-mode', 'edit');
     expect(studio).toHaveAttribute('data-ai', 'function');
+    expect(studio).toHaveAttribute('data-widgets', 'cost-cash-curve');
     expect(within(studio).getByText(/^invoices: \d+ rows/)).not.toHaveTextContent('invoices: 0');
     expect(await within(studio).findByText(/^runway: 31 rows/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Cash Studio', level: 1 })).toBeInTheDocument();

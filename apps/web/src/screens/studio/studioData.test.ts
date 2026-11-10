@@ -31,6 +31,7 @@ describe('the owner’s data as Studio tables', () => {
       amountDue: Number(row.amountDue),
       action: row.planItem?.action,
       planCost: Number(row.planItem?.cost),
+      planCash: Number(row.planItem?.committedIfAgreed),
       dealState: row.deal?.state ?? 'NONE',
     });
   });

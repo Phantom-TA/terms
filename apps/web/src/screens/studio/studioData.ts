@@ -1,5 +1,6 @@
 import { type ListInvoicesResponse, type RunwayResponse } from '@terms/shared';
 import { type AgDataSourcesDefinition, type AgFieldDefinition } from 'ag-studio';
+import { type TermsRegistry } from './widgets';
 
 /**
  * The owner's cash data as Studio tables, for the cash strategist's widgets. Values are the
@@ -18,6 +19,8 @@ export interface InvoiceRecord {
   action: string;
   discountPct: number | null;
   planCost: number;
+  /** Cash the plan row brings in if its offer is accepted (the server's committedIfAgreed). */
+  planCash: number;
   dealState: string;
 }
 
@@ -39,6 +42,7 @@ export function invoiceRecords(invoices: ListInvoicesResponse): InvoiceRecord[] 
     action: row.planItem?.action ?? 'NONE',
     discountPct: row.planItem?.discountPct ? amount(row.planItem.discountPct) : null,
     planCost: row.planItem ? amount(row.planItem.cost) : 0,
+    planCash: row.planItem ? amount(row.planItem.committedIfAgreed) : 0,
     dealState: row.deal?.state ?? 'NONE',
   }));
 }
@@ -55,7 +59,7 @@ export function runwayRecords(runway: RunwayResponse): RunwayRecord[] {
 const dollars = { format: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }) };
 
 /** The runway's fields, declared so the what-if table has them before it has any rows. */
-const RUNWAY_FIELDS: AgFieldDefinition[] = [
+const RUNWAY_FIELDS: AgFieldDefinition<TermsRegistry>[] = [
   { id: 'date', name: 'Date', format: 'dateFormat' },
   { id: 'before', name: 'Before the plan', format: 'currencyFormat', formatOptions: dollars },
   {
@@ -79,7 +83,7 @@ const RUNWAY_FIELDS: AgFieldDefinition[] = [
 export function studioSources(
   invoices: ListInvoicesResponse,
   runway: RunwayResponse | null,
-): AgDataSourcesDefinition {
+): AgDataSourcesDefinition<TermsRegistry> {
   return {
     sources: [
       {

@@ -9,6 +9,7 @@ import { useInvoices, useRunway } from '../workbench/queries';
 import { strategist } from './strategist';
 import { studioSources } from './studioData';
 import { termsStudioTheme } from './theme';
+import { type TermsRegistry, termsWidgets } from './widgets';
 
 const licenseKey = import.meta.env.VITE_AG_STUDIO_LICENSE_KEY;
 const modules = [AgStudioAiModule];
@@ -59,10 +60,11 @@ export function Component() {
     body = (
       <div className="h-[calc(100dvh-14rem)] min-h-[560px]" data-testid="cash-studio">
         <AgStudioProvider modules={modules} {...(licenseKey ? { licenseKey } : {})}>
-          <AgStudio
+          <AgStudio<TermsRegistry>
             data={data}
             mode="edit"
             theme={termsStudioTheme}
+            widgets={termsWidgets}
             ai={strategist}
             panels={panels}
             layout={layout}
