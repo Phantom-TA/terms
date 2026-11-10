@@ -7,6 +7,7 @@ import { formatDateTime, formatPercent } from '../../lib/display';
 import { Button } from '../../ui/Button';
 import { ErrorState } from '../../ui/ErrorState';
 import { useToast } from '../../ui/Toast';
+import { useVault } from '../payables/queries';
 import { useDecideApproval } from './queries';
 
 type Decision = 'APPROVED' | 'REJECTED';
@@ -23,7 +24,7 @@ export interface ApprovalCardProps {
 
 /**
  * Something that needs a person: what approving would do and what it costs. It counts as decided
- * only after the server says so. A client's payment is then approved on PayPal itself.
+ * only after the server says so. A client's payment then counts as paid only when PayPal confirms it.
  */
 export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps) {
   const decide = useDecideApproval();
@@ -31,12 +32,18 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
   const [chosen, setChosen] = useState<Decision | null>(null);
   const { costImpact, terms } = approval;
   const payment = approval.type === 'CLIENT_PAYMENT';
+  // With a saved method the agent pays, so there is no PayPal page to open.
+  const vault = useVault(payment);
+  const paysOnPayPal = payment && vault.data?.status !== 'ACTIVE';
   const over =
     costImpact && toCents(costImpact.overCeilingBy) > 0n ? costImpact.overCeilingBy : null;
 
   const send = async (decision: Decision) => {
     setChosen(decision);
     onDecide?.();
+    // The payment is made on PayPal's invoice page, in a new tab. Open it now, at the click, or
+    // the browser may block it once the address arrives.
+    const tab = paysOnPayPal && decision === 'APPROVED' ? browser.openTab('Opening PayPal…') : null;
     let result;
     try {
       // Awaited: the card leaves the page once the server's answer arrives.
@@ -46,23 +53,43 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
         decision,
       });
     } catch (error) {
+      tab?.close();
       // The card disappears once the refreshed data says it was decided, so say so somewhere.
       if (isConflict(error)) {
         toast({ tone: 'info', title: 'Already decided', description: approval.title });
       }
       return; // Anything else is shown on the card from the mutation's error.
     }
-    if (result.paypalApprovalUrl) {
-      // The payment itself is approved on PayPal. Terms learns the outcome from PayPal.
-      toast({ tone: 'info', title: 'Opening PayPal', description: 'Approve the payment there.' });
-      browser.assign(result.paypalApprovalUrl);
+    if (!payment || decision === 'REJECTED') {
+      toast({
+        tone: 'success',
+        title: decision === 'APPROVED' ? 'Approved' : 'Rejected',
+        description: approval.title,
+      });
       return;
     }
-    toast({
-      tone: 'success',
-      title: decision === 'APPROVED' ? 'Approved' : 'Rejected',
-      description: approval.title,
-    });
+    // Approved, but nothing is paid until PayPal confirms it; the desk shows it waiting.
+    if (result.paypalApprovalUrl && tab) {
+      tab.go(result.paypalApprovalUrl);
+      toast({
+        tone: 'info',
+        title: 'PayPal invoice opened in a new tab',
+        description: 'Pay it there. This page updates when PayPal confirms the payment.',
+      });
+    } else if (result.paypalApprovalUrl) {
+      toast({
+        tone: 'info',
+        title: 'Pay the invoice on PayPal',
+        description: 'Your browser blocked the new tab. Open the invoice from the Payables Desk.',
+      });
+    } else {
+      tab?.close();
+      toast({
+        tone: 'info',
+        title: 'Approved. Paying from your saved PayPal method',
+        description: 'This page updates when PayPal confirms the payment.',
+      });
+    }
   };
 
   return (
@@ -141,7 +168,7 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
               loading={decide.isPending && chosen === 'APPROVED'}
               disabled={decide.isPending}
             >
-              {payment ? 'Approve in PayPal' : 'Approve'}
+              {payment ? 'Approve payment' : 'Approve'}
             </Button>
             <Button
               variant="danger"

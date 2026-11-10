@@ -58,8 +58,10 @@ test.describe('Negotiation Room', () => {
     await expect(log.getByRole('article')).toHaveCount(2);
     const counter = log.getByRole('article', { name: /Harbor & Co’s agent: Counter/ });
     await expect(counter).toContainText('23.2% a year');
-    await expect(counter).toContainText('0.8% is below our 15% hurdle');
+    await expect(counter).toContainText('We could pay early at 1.5%.');
+    // The owner sees its own checks on the counter, never the client's limits.
     await expect(counter).toContainText('Max discount');
+    await expect(counter).not.toContainText(/hurdle/i);
     await expect(counter).toContainText('blocked');
 
     await waitForAnimations(page);
@@ -112,16 +114,19 @@ test.describe('Negotiation Room', () => {
     await expect(nav.getByRole('button').first()).toContainText('Juniper Labs');
   });
 
-  test('switches conversation and shows who still has to pay', async ({ page }) => {
+  test('switches conversation and shows who still has to pay, without the client’s approvals', async ({
+    page,
+  }) => {
     await approvePlan(page);
     await openRoom(page);
     await negotiate(page);
     await page.getByRole('button', { name: /Juniper Labs/ }).click();
     await expect(page.getByRole('heading', { name: 'Juniper Labs', level: 2 })).toBeVisible();
     await expect(page).toHaveURL(/deal=deal_juniper/);
-    await expect(page.getByRole('status').filter({ hasText: 'Waiting for PayPal' })).toContainText(
-      'A person at Juniper Labs approves the $4,960.00 payment',
-    );
+    const waiting = page.getByRole('status').filter({ hasText: 'Waiting for PayPal' });
+    await expect(waiting).toContainText('Juniper Labs pays through PayPal');
+    // How the client approves its payment, and its limits, are the client's own.
+    await expect(page.getByRole('main')).not.toContainText(/auto-pay|approves the/i);
     await waitForAnimations(page);
     await expectNoA11yViolations(page);
   });

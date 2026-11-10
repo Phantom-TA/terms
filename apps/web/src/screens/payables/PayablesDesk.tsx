@@ -1,11 +1,14 @@
-import { formatMoney } from '@terms/shared';
+import { type ClientOffer, formatMoney } from '@terms/shared';
 import { lazy, Suspense, useState } from 'react';
 import { EmptyState } from '../../ui/EmptyState';
 import { ErrorState } from '../../ui/ErrorState';
+import { PendingNotice } from '../../ui/PendingNotice';
 import { SkeletonRows } from '../../ui/Skeleton';
+import { useToast } from '../../ui/Toast';
 import { ApprovalCard } from '../approvals/ApprovalCard';
 import { pendingApprovals, useApprovals } from '../approvals/queries';
 import { ClientPolicyCard } from '../settings/ClientPolicyCard';
+import { useDeal } from '../workbench/queries';
 import { type OfferStatus, useClientOffers, usePayablesLive } from './queries';
 import { VaultPanel } from './VaultPanel';
 
@@ -27,11 +30,59 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
   );
 }
 
+/** The PayPal invoice for a payment approved without a saved method, if there is one. */
+function InvoiceLink({ dealId }: { dealId: string }) {
+  const deal = useDeal(dealId);
+  const url = deal.data?.paypal.payerUrl;
+  if (!url) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 inline-block text-sm font-medium text-ink underline underline-offset-2"
+    >
+      Open the PayPal invoice<span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  );
+}
+
+/** Approved payments, which count as paid only once PayPal confirms them. */
+function WaitingForPayPal({ offers }: { offers: readonly ClientOffer[] }) {
+  if (offers.length === 0) return null;
+  return (
+    <section aria-labelledby="paying-heading" className="space-y-3">
+      <h2 id="paying-heading" className="text-lg">
+        Being paid
+      </h2>
+      {offers.map((offer) => (
+        <PendingNotice
+          key={offer.dealId}
+          detail={`${formatMoney(offer.payNow)} to ${offer.supplier.name} for invoice ${offer.invoice.number}. This updates when PayPal confirms the payment.`}
+        >
+          <InvoiceLink dealId={offer.dealId} />
+        </PendingNotice>
+      ))}
+    </section>
+  );
+}
+
 /** A client's view: offers from suppliers, ranked by what paying early earns, and its rules. */
 export function Component() {
-  usePayablesLive();
+  const { toast } = useToast();
+  usePayablesLive((deal) => {
+    toast({
+      tone: 'success',
+      title: 'Payment confirmed by PayPal',
+      description: `Invoice ${deal.invoiceNumber} is paid.`,
+    });
+  });
   const [status, setStatus] = useState<OfferStatus>('OPEN');
   const offers = useClientOffers(status);
+  const open = useClientOffers('OPEN');
+  const paying = (open.data?.offers ?? []).filter(
+    (o) => o.state === 'AWAITING_PAYMENT' && o.pendingApprovalId === null,
+  );
   const approvals = useApprovals();
   const waiting = approvals.data ? pendingApprovals(approvals.data) : [];
 
@@ -74,6 +125,8 @@ export function Component() {
           ))}
         </section>
       ) : null}
+
+      <WaitingForPayPal offers={paying} />
 
       <section aria-labelledby="offers-heading" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

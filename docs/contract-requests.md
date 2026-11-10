@@ -49,9 +49,9 @@ The Render build also needs `apps/web` built, with `dist` served by the API for 
 
 ## CR-4: the pages PayPal returns a client to, and who sees which audit entries
 
-**Status:** open.
+**Status:** answered by A. `webPaths.vaultReturn` and `vaultCancel` are coming in `contracts-v3`; the server already serves the app for them. The web app uses its own constants until then.
 
-1. A's vault service sends PayPal `${APP_BASE_URL}/client/vault/return` and `/client/vault/cancel`. The web app has both pages (the return page reads `approval_token_id`), but they are not in `webPaths`, so the two sides could drift. The deployed server must also serve the app for these paths, as for `/offer/:token`.
+1. A's vault service sends PayPal `${APP_BASE_URL}/client/vault/return` and `/client/vault/cancel`. The web app has both pages (the return page reads `approval_token_id`). A is adding them to `webPaths`:
 
 ```ts
 // packages/shared/src/routes.ts, webPaths
@@ -59,6 +59,8 @@ vaultReturn: () => '/client/vault/return',
 vaultCancel: () => '/client/vault/cancel',
 ```
 
-2. A client payment approved in Terms returns `paypalApprovalUrl` from `POST /api/approvals/:id/decision`. Which page should PayPal send the person back to? The web app assumes `/approvals`. If it should be another page, please add it to `webPaths` too.
+2. Answered: no return page is needed for a payment. `paypalApprovalUrl` from `POST /api/approvals/:approvalId` is the PayPal invoice page, sent only when the client has no saved PayPal method. PayPal does not redirect back; Terms learns of the payment from the verified webhook and sends `deal.updated`. The web app opens it in a new tab and shows the payment as waiting for PayPal confirmation (W-037).
 
-3. `GET /api/audit` says each business sees entries about its own records. Please confirm what a client sees on a deal it shares with the owner. The mock shows a client the negotiation messages, its own side's steps and PayPal's steps, but not the owner's approvals or the supplier agent's reasons (for example, that a counter goes over the owner's ceiling), and shows the owner no client's policy or saved-method entries.
+3. Open, small: `DealSummary.pendingApprovalId` is documented as "Pending NEEDS_OWNER or client-payment approval". Under the rule in 3, the owner should get it only for its own approvals and a client only for its own; otherwise the owner's Workbench shows a client's payment approval as needing the owner. Please say so in the comment in `contracts-v3`, and likewise for `closedReason`. The mock already behaves this way.
+
+4. Answered: each side sees the negotiation messages, PayPal's steps and the deal's state changes; each sees only its own approvals, reasons and policy checks. A is fixing the server, which currently shows some of these to the other side, and will say when that is on `develop`. The web app and mock follow these rules (W-046).
