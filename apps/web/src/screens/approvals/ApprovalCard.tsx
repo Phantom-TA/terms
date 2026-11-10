@@ -35,6 +35,9 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
   // With a saved method the agent pays, so there is no PayPal page to open.
   const vault = useVault(payment);
   const paysOnPayPal = payment && vault.data?.status !== 'ACTIVE';
+  // Whether a PayPal tab is needed depends on the saved method, so wait until that is known. If it
+  // can't be read, approving opens the tab, and closes it if the agent pays instead.
+  const checkingMethod = payment && vault.isPending;
   const over =
     costImpact && toCents(costImpact.overCeilingBy) > 0n ? costImpact.overCeilingBy : null;
 
@@ -166,7 +169,7 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
               variant="primary"
               onClick={() => void send('APPROVED')}
               loading={decide.isPending && chosen === 'APPROVED'}
-              disabled={decide.isPending}
+              disabled={decide.isPending || checkingMethod}
             >
               {payment ? 'Approve payment' : 'Approve'}
             </Button>
