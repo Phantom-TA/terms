@@ -173,7 +173,11 @@ supplier`). The side that made the move reads the real reason in `DealDetail.his
     Open it in a new tab and wait for `deal.updated`; the comment on
     `DecideApprovalResponse.paypalApprovalUrl` says so.
   - Who sees what on a shared deal is now enforced by the server (see "Visibility on a shared
-    deal" above). No schema changes.
+    deal" above). The schemas say so: `DealSummary.pendingApprovalId` is only the approval the
+    viewing business may decide (null otherwise), `DealSummary.closedReason` is the public reason
+    both sides read, `DealTransition.reason` is the real reason only for the side that made the
+    move, and `NegotiationMessage.policyChecks` is filled only for the sender's side. No shape
+    changes.
   - `CONTRACTS_VERSION` is 3.
 - **contracts-v2** (2026-11-10), from Developer B's contract requests:
   - CR-1: `PlanItemView.policyChecks`, the checks the server ran on the row when it was planned or
