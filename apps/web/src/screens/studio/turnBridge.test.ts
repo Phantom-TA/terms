@@ -124,6 +124,18 @@ describe('the conversation sent to the server', () => {
       },
     ]);
   });
+  it('keeps a long description whole, in the input schema, within the contract’s limit', () => {
+    const long = 'Run a query. '.repeat(120);
+    const [tool] = toClientTools([
+      { name: 'execute_query', description: long, parameters: { type: 'object' } },
+    ]);
+    expect(tool!.description.length).toBeLessThanOrEqual(1000);
+    expect(tool!.description).toMatch(/full description is in the input schema/);
+    expect(tool!.inputSchema).toEqual({ type: 'object', description: long });
+    expect(() =>
+      StudioTurnRequest.parse({ messages: [{ role: 'user', content: 'Hi' }], clientTools: [tool] }),
+    ).not.toThrow();
+  });
 });
 
 describe('the server’s answer, as Studio’s events', () => {

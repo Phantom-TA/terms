@@ -85,16 +85,28 @@ export function toStudioMessages(messages: readonly AgAiMessage[]): StudioMessag
   return out.slice(start);
 }
 
+/**
+ * One tool as the contract declares it. A description over the contract's limit is not cut: it is
+ * shortened, and the whole text goes in the input schema's own `description`, which has no limit.
+ */
+function toClientTool(tool: AgAiToolSchema): StudioClientToolDefinition {
+  if (tool.description.length <= DESCRIPTION_MAX) {
+    return { name: tool.name, description: tool.description, inputSchema: tool.parameters };
+  }
+  const note = ' … (The full description is in the input schema.)';
+  return {
+    name: tool.name,
+    description: tool.description.slice(0, DESCRIPTION_MAX - note.length).trimEnd() + note,
+    inputSchema: { ...tool.parameters, description: tool.description },
+  };
+}
+
 /** The widget tools the browser runs, as the contract declares them. Server-side tools are left out. */
 export function toClientTools(tools: readonly AgAiToolSchema[]): StudioClientToolDefinition[] {
   return tools
     .filter((tool) => tool.kind === undefined || tool.kind === 'client')
     .slice(0, STUDIO_MAX_CLIENT_TOOLS)
-    .map((tool) => ({
-      name: tool.name,
-      description: tool.description.slice(0, DESCRIPTION_MAX),
-      inputSchema: tool.parameters,
-    }));
+    .map(toClientTool);
 }
 
 /**
