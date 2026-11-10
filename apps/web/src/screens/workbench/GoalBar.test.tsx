@@ -62,6 +62,30 @@ describe('GoalBar', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it('says which fields were not in the sentence and came from the owner’s policy', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    const goal = await readGoal(user);
+    // The demo sentence states the maximum but not the buffer.
+    expect(
+      within(goal).getByText(/Not in your sentence, so taken from your policy: buffer\./),
+    ).toBeInTheDocument();
+  });
+
+  it('names the maximum too when the sentence leaves it out', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    await user.type(
+      await screen.findByLabelText(/What cash do you need/),
+      'I need $6,200 by Friday.',
+    );
+    await user.click(screen.getByRole('button', { name: 'Read my goal' }));
+    const goal = await screen.findByRole('region', { name: 'Your goal' });
+    expect(
+      within(goal).getByText(/taken from your policy: max discount, buffer\./),
+    ).toBeInTheDocument();
+  });
+
   it('shows a loading state while the goal is being read', async () => {
     const user = userEvent.setup();
     server.use(

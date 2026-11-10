@@ -6,7 +6,7 @@ Evidence commands, from `apps/web`: `pnpm gate` (typecheck, lint, format, Vitest
 
 **Everything below was tested against mocks generated from the shared schemas (`VITE_USE_MOCKS=true`). Nothing has been run against the real API yet.** A's routes are on `develop` now, but its demo seed creates real PayPal sandbox invoices, so a real run needs the sandbox app's credentials in the root `.env`. Status is PASS for the UI behaviour in mock mode and says so where the real API could change the result.
 
-**Last full run (Phase 6, 2026-11-11):** 516 unit and component tests passed; 116 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
+**Last full run (Phase 7, 2026-11-11):** 518 unit and component tests passed; 116 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
 
 ## Phase 1: design system and shell
 
@@ -143,14 +143,26 @@ Spike S6 first. AG Studio 3.1.0 runs a custom agent through `clientToolRunner`. 
 
 ## Phase 6: polish and integration
 
-| Feature                                                      | Status      | Evidence                                                                                                                                                                           | Limits                                                                             |
-| ------------------------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| A deal's state changing is seen                              | PASS        | `finance.test.tsx` (the pill remounts with its entry animation on a new state); `columns.test.ts` (the Workbench's Deal state and Committed cells use AG Grid's cell-change flash) | Reduced-motion settings turn the animation off                                     |
-| Keyboard only: goal, plan, approval dialog, counter approval | PASS        | `keyboard.spec.ts` at both widths: Escape closes the dialog and returns focus; repeated 5 times with no failure                                                                    |                                                                                    |
-| A visible focus indicator at every stop                      | PASS        | `keyboard.spec.ts` tabs through the Workbench, Negotiation Room, Payables Desk and Settings. With focus rings removed on purpose it fails on all 40 stops                          | AG Charts and AG Grid draw their own focus; the test checks the chart's is showing |
-| Workbench at scale                                           | PASS (mock) | `scale.spec.ts`: 300 extra invoices across 12 clients; first rows about 1.4 s after building the plan, only rows in view drawn, scroll to the end about 0.1 s                      | A's `--scale` seed against the real server is not run yet                          |
-| Production build on Windows                                  | PASS        | The bundle check builds its path with `fileURLToPath` (A found `D:\D:\...` on Windows)                                                                                             | Checked by converting a Windows URL; no Windows machine here                       |
-| Three clean end-to-end runs with A on `develop`              | Not started |                                                                                                                                                                                    | Needs A and the server with PayPal sandbox credentials                             |
+| Feature                                                      | Status      | Evidence                                                                                                                                                                                                            | Limits                                                                             |
+| ------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| A deal's state changing is seen                              | PASS        | `finance.test.tsx` (the pill remounts with its entry animation on a new state); `columns.test.ts` (the Workbench's Deal state and Committed cells use AG Grid's cell-change flash)                                  | Reduced-motion settings turn the animation off                                     |
+| Keyboard only: goal, plan, approval dialog, counter approval | PASS        | `keyboard.spec.ts` at both widths: Escape closes the dialog and returns focus; repeated 5 times with no failure                                                                                                     |                                                                                    |
+| A visible focus indicator at every stop                      | PASS        | `keyboard.spec.ts` tabs through the Workbench, Negotiation Room, Payables Desk and Settings. With focus rings removed on purpose it fails on all 40 stops                                                           | AG Charts and AG Grid draw their own focus; the test checks the chart's is showing |
+| Workbench at scale                                           | PASS (mock) | `scale.spec.ts`: 300 extra invoices across 12 clients, compared with none on the same machine after a warm-up run. First rows in about 0.1–0.3 s either way, only rows in view drawn, scroll to the end about 0.2 s | A's `--scale` seed against the real server is not run yet                          |
+| Production build on Windows                                  | PASS        | The bundle check builds its path with `fileURLToPath` (A found `D:\D:\...` on Windows)                                                                                                                              | Checked by converting a Windows URL; no Windows machine here                       |
+| Three clean end-to-end runs with A on `develop`              | Not started |                                                                                                                                                                                                                     | Needs A and the server with PayPal sandbox credentials                             |
+
+## Phase 7: docs
+
+| Document                     | Status  | Notes                                                                                                                                                                            |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` product sections | Done    | Problem, how it works, the demo in screens (screenshots from demo mode), screens, AI and sponsor tools, limitations. A adds setup, architecture and deployment before submission |
+| `docs/user-guide.md`         | Done    | Each screen, as the owner, a client with an agent and a client without one; checked against the app                                                                              |
+| `docs/judging-map.md`        | Done    | Each criterion, where to see it and how to check it                                                                                                                              |
+| `docs/devpost.md`            | Done    | Devpost text, Built with, AI disclosure                                                                                                                                          |
+| Sandbox screenshots          | Not yet | Replace the demo-mode screenshots after the joint run with A                                                                                                                     |
+
+Writing the guide found one gap: the API's `defaultedFields` (goal fields the parser took from the owner's policy) was not shown. The Goal bar now names them before the owner confirms (`GoalBar.test.tsx`).
 
 ## Spikes
 

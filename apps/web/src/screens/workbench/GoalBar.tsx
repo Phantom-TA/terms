@@ -23,6 +23,14 @@ import {
 } from './goalFields';
 import { useCreateGoal, useCreatePlan, useUpdateGoal } from './queries';
 
+/** The goal fields the parser filled from the owner's policy, as the chips name them. */
+const DEFAULTED_LABEL: Readonly<Record<Goal['defaultedFields'][number], string>> = {
+  maxDiscountPct: 'max discount',
+  bufferPct: 'buffer',
+  deadline: 'date',
+  doNotContact: 'who not to contact',
+};
+
 const EXAMPLE =
   "I need $6,200 by Friday. Don't offer more than 1.2%, and don't contact Pinecrest or Birch.";
 
@@ -224,6 +232,13 @@ export function GoalBar({ goal, hasPlan, clients }: GoalBarProps) {
         )}
         <Chip label="Target">{displayMoney(goal.target)}</Chip>
       </div>
+      {editable && goal.defaultedFields.length > 0 ? (
+        <p className="text-sm text-ink-2">
+          Not in your sentence, so taken from your policy:{' '}
+          {goal.defaultedFields.map((field) => DEFAULTED_LABEL[field]).join(', ')}. Check before you
+          confirm.
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Do not contact">
         <span className="text-sm text-ink-3">Do not contact</span>
