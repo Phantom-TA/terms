@@ -303,10 +303,16 @@ export class MockDesk {
 
   confirmVault(clientId: string, setupTokenId: string): VaultView {
     const vault = this.vaults.get(clientId);
-    if (vault?.status !== 'PENDING' || vault.setupTokenId !== setupTokenId) {
+    const slug = clientId.replace('biz_', '');
+    // In the browser the mock starts afresh on every page load, and coming back from PayPal is a
+    // page load, so the waiting state may be gone. The token is fixed per client, so accept it.
+    const waiting =
+      vault?.status === 'PENDING'
+        ? vault.setupTokenId === setupTokenId
+        : vault?.status !== 'ACTIVE' && setupTokenId === `mock-setup-${slug}`;
+    if (!vault || !waiting) {
       throw new DeskValidationError('There is no PayPal approval waiting for this link.');
     }
-    const slug = clientId.replace('biz_', '');
     this.vaults.set(clientId, {
       status: 'ACTIVE',
       paymentTokenId: `mock-token-${slug}`,

@@ -119,6 +119,14 @@ describe('saved PayPal method', () => {
   it('refuses to confirm without a matching PayPal approval', () => {
     expect(() => desk.confirmVault('biz_juniper', 'made-up')).toThrow(DeskValidationError);
   });
+
+  it('confirms after a page load lost the waiting state, as coming back from PayPal does', () => {
+    const { setupTokenId } = desk.setupVault('biz_juniper', 'http://localhost:5173');
+    const fresh = new MockDesk(() => world);
+    expect(fresh.confirmVault('biz_juniper', setupTokenId).status).toBe('ACTIVE');
+    expect(() => fresh.confirmVault('biz_juniper', setupTokenId)).toThrow(DeskValidationError);
+    expect(() => fresh.confirmVault('biz_harbor', setupTokenId)).toThrow(DeskValidationError);
+  });
 });
 
 describe('approvals', () => {
