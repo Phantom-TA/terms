@@ -1,7 +1,7 @@
-import { formatMoney } from '@terms/shared';
-import { type QueryKey, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useServerEvent } from '../../api/StreamProvider';
+import { useApplyEvent } from '../../api/useApplyEvent';
+import { describeGoalMet } from '../../lib/display';
 import { useToast } from '../../ui/Toast';
 import {
   applyDealUpdated,
@@ -25,18 +25,7 @@ export function useWorkbenchLive(): void {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  /**
-   * Applies an event. A fetch already in flight may have started before the event, so its answer
-   * could be older; in that case refetch, which replaces that fetch with one that includes it.
-   */
-  const applyEvent = useCallback(
-    <T>(queryKey: QueryKey, update: (old: T | undefined) => T | undefined) => {
-      const refreshing = queryClient.isFetching({ queryKey }) > 0;
-      queryClient.setQueryData<T>(queryKey, update);
-      if (refreshing) void queryClient.invalidateQueries({ queryKey });
-    },
-    [queryClient],
-  );
+  const applyEvent = useApplyEvent();
 
   useServerEvent('invoice.updated', (event) => {
     applyEvent<ListInvoicesResponse>(workbenchKeys.invoices, (old) =>
@@ -68,7 +57,7 @@ export function useWorkbenchLive(): void {
     toast({
       tone: 'success',
       title: 'Goal met',
-      description: `${formatMoney(event.data.committed)} is committed against a ${formatMoney(event.data.target)} target, for ${formatMoney(event.data.cost)}. Offers that are no longer needed were withdrawn.`,
+      description: describeGoalMet(event.data.committed, event.data.target, event.data.cost),
     });
   });
 

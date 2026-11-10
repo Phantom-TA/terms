@@ -16,6 +16,7 @@ import {
   DueCell,
   IfAgreedCell,
   PayPalStatusCell,
+  PolicyCell,
   RateCell,
 } from './cells';
 import { type AnyRow, isInvoiceRow, type WorkbenchRow } from './rows';
@@ -131,6 +132,14 @@ export function buildColumns(deps: ColumnDeps): ColDef<AnyRow>[] {
       valueGetter: (params) => offerMoney(params.data, 'cost'),
       aggFunc: aggregateMoney,
       cellRenderer: CostCell,
+    },
+    {
+      colId: 'policy',
+      headerName: 'Policy',
+      width: 230,
+      cellDataType: false,
+      valueGetter: invoiceValue('policyChecks'),
+      cellRenderer: PolicyCell,
     },
     {
       colId: 'number',

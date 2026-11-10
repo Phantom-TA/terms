@@ -1,6 +1,8 @@
 import {
   type ActionType,
   type DealState,
+  formatMoney,
+  type MessageType,
   type PayPalInvoiceStatus,
   type PolicyResult,
   type PolicyRule,
@@ -105,6 +107,14 @@ export const ACTION_LABEL: Readonly<Record<ActionType, string>> = {
   NEGOTIATE: 'Negotiate',
 };
 
+export const MESSAGE_TYPE_LABEL: Readonly<Record<MessageType, string>> = {
+  OFFER: 'Offer',
+  COUNTER: 'Counter',
+  ACCEPT: 'Accepted',
+  DECLINE: 'Declined',
+  WITHDRAW: 'Withdrawn',
+};
+
 export const POLICY_RULE_LABEL: Readonly<Record<PolicyRule, string>> = {
   maxDiscount: 'Max discount',
   doNotContact: 'Do not contact',
@@ -188,4 +198,9 @@ export function formatAnnualRate(rate: string): string {
 /** "1.20" → "1.2%", "1.25" → "1.25%", "1.00" → "1%". */
 export function formatPercent(value: string): string {
   return `${value.replace(/\.?0+$/, '')}%`;
+}
+
+/** The sentence announcing that the goal was met, from the server's figures. */
+export function describeGoalMet(committed: string, target: string, cost: string): string {
+  return `${formatMoney(committed)} is committed against a ${formatMoney(target)} target, for ${formatMoney(cost)}. Offers that are no longer needed were withdrawn.`;
 }

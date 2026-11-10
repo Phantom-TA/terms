@@ -6,6 +6,7 @@ import {
   type PlanItemView,
   type PlanStatus,
   type PlanSummary,
+  type PolicyCheckView,
 } from '@terms/shared';
 import { ACTION_LABEL } from '../../lib/display';
 
@@ -51,6 +52,8 @@ export interface WorkbenchRow {
   dealState: DealState | null;
   dealId: string | null;
   approval: ApprovalStatus;
+  /** The checks the server ran on this row when it was planned or last edited. */
+  policyChecks: readonly PolicyCheckView[];
   /** A change to this row is on its way to the server. */
   saving?: boolean;
 }
@@ -166,6 +169,7 @@ function toRow(invoice: InvoiceRow, planStatus: PlanStatus | null): WorkbenchRow
       (planStatus === 'DRAFT' && action !== 'NONE' ? 'SUGGESTED' : null),
     dealId: deal?.id ?? item?.dealId ?? null,
     approval: isOffer || action === 'REMINDER' ? approvalFor(invoice, action, planStatus) : null,
+    policyChecks: item?.policyChecks ?? [],
   };
 }
 

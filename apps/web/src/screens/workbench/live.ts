@@ -37,6 +37,8 @@ export function applyDealUpdated(
     ...old,
     rows: old.rows.map((row) => {
       if (row.id !== deal.invoiceId) return row;
+      // An event can arrive after a newer fetch. The newer record wins.
+      if (row.deal && Date.parse(deal.updatedAt) < Date.parse(row.deal.updatedAt)) return row;
       return {
         ...row,
         deal,

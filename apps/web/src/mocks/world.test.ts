@@ -1,5 +1,7 @@
 import {
   CurrentGoalResponse,
+  DealDetail,
+  ServerEvent,
   InvoiceRow,
   Plan,
   RunwayResponse,
@@ -68,6 +70,33 @@ describe('mock world reproduces the CONTEXT.md scenario', () => {
       goalMet: false,
       shortfall: false,
     });
+  });
+
+  it('stores the checks the planner ran on each row', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const byClient = Object.fromEntries(
+      plan.items.filter((i) => i.rank === 'PRIMARY').map((i) => [i.client.name, i]),
+    );
+    expect(byClient['Pinecrest Dental']?.policyChecks).toEqual([
+      expect.objectContaining({ rule: 'doNotContact', result: 'blocked' }),
+    ]);
+    expect(byClient['Oak Street Bakery']?.policyChecks).toEqual([
+      expect.objectContaining({ rule: 'doNotContact', result: 'pass' }),
+    ]);
+    const juniper = byClient['Juniper Labs']?.policyChecks ?? [];
+    expect(juniper.length).toBeGreaterThan(3);
+    expect(juniper.every((c) => c.result === 'pass')).toBe(true);
+  });
+
+  it('records the new checks on an edited row', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const harbor = plan.items.find((i) => i.client.name === 'Harbor & Co')!;
+    const edited = world.updateItem(harbor.id, { discountPct: '1.20' }).plan;
+    expect(edited.items.find((i) => i.id === harbor.id)?.policyChecks).toContainEqual(
+      expect.objectContaining({ rule: 'costCeiling', result: 'needs_approval' }),
+    );
   });
 
   it('creates no deals until the owner approves, as the API does', () => {
@@ -162,6 +191,111 @@ describe('mock world reproduces the CONTEXT.md scenario', () => {
     expect(() => world.updateItem(plan.items[0]!.id, { discountPct: '0.50' })).toThrow(
       'Only a draft plan',
     );
+  });
+});
+
+describe('the demo negotiation', () => {
+  function started() {
+    world.parseGoal(SENTENCE);
+    world.createPlan();
+    world.approve('60.00');
+    return world.startNegotiation();
+  }
+
+  it('runs to the owner’s decision and no further', () => {
+    const events = started();
+    const deals = Object.fromEntries([...world.deals.values()].map((d) => [d.client.name, d]));
+    expect(deals['Juniper Labs']).toMatchObject({
+      state: 'AWAITING_PAYMENT',
+      countsAsCommitted: true,
+    });
+    expect(deals['Harbor & Co']).toMatchObject({
+      state: 'NEEDS_OWNER',
+      pendingApprovalId: 'appr_harbor_counter',
+    });
+    expect(world.plan?.summary.committed).toBe('4960.00');
+    for (const event of events) expect(() => ServerEvent.parse(event)).not.toThrow();
+  });
+
+  it('asks the owner about a counter $1 over the $60 ceiling', () => {
+    started();
+    const approval = world.listApprovals().find((a) => a.id === 'appr_harbor_counter');
+    expect(approval?.costImpact).toEqual({
+      planCostBefore: '54.00',
+      planCostAfter: '61.00',
+      delta: '7.00',
+      ceiling: '60.00',
+      overCeilingBy: '1.00',
+    });
+  });
+
+  it('leaves out a row the owner removed from the plan', () => {
+    world.parseGoal(SENTENCE);
+    const plan = world.createPlan();
+    const harbor = plan.items.find((i) => i.client.name === 'Harbor & Co')!;
+    world.updateItem(harbor.id, { action: 'NONE' });
+    world.approve('60.00');
+    expect(() => world.startNegotiation()).not.toThrow();
+    expect(world.dealDetail('deal_harbor')).toBeNull();
+    expect(world.dealDetail('deal_juniper')?.state).toBe('AWAITING_PAYMENT');
+  });
+
+  it('prices the deal on the terms currently on the table', () => {
+    started();
+    expect(world.dealDetail('deal_harbor')).toMatchObject({
+      cost: '26.25',
+      committedIfAgreed: '1723.75',
+    });
+  });
+
+  it('never reports a payment, which only PayPal can do', () => {
+    const first = started();
+    const { events } = world.decideApproval('appr_harbor_counter', 'APPROVED', null);
+    const states = [...first, ...events].flatMap((e) =>
+      e.type === 'deal.updated' ? [e.data.deal.state] : [],
+    );
+    expect(states).not.toContain('PAID');
+    expect(states).not.toContain('PARTIALLY_PAID');
+  });
+
+  it('reaches the CONTEXT.md outcome when the owner approves', () => {
+    started();
+    const { events } = world.decideApproval('appr_harbor_counter', 'APPROVED', null);
+    expect(world.plan?.summary).toMatchObject({
+      committed: '6689.00',
+      costSoFar: '61.00',
+      goalMet: true,
+    });
+    const harbor = world.dealDetail('deal_harbor')!;
+    expect(harbor.messages.map((m) => m.type)).toEqual(['OFFER', 'COUNTER', 'COUNTER', 'ACCEPT']);
+    expect(harbor.messages[3]).toMatchObject({ impliedAnnualRate: '18.5', payNow: '1729.00' });
+    expect(events.some((e) => e.type === 'goal.met')).toBe(true);
+    for (const event of events) expect(() => ServerEvent.parse(event)).not.toThrow();
+    expect(() => DealDetail.parse(harbor)).not.toThrow();
+  });
+
+  it('closes the deal when the owner rejects', () => {
+    started();
+    world.decideApproval('appr_harbor_counter', 'REJECTED', null);
+    expect(world.dealDetail('deal_harbor')).toMatchObject({
+      state: 'DECLINED',
+      pendingApprovalId: null,
+      closedReason: 'You rejected the counter.',
+    });
+    expect(world.plan?.summary.committed).toBe('4960.00');
+  });
+
+  it('refuses a second decision', () => {
+    started();
+    world.decideApproval('appr_harbor_counter', 'REJECTED', null);
+    expect(() => world.decideApproval('appr_harbor_counter', 'APPROVED', null)).toThrow('already');
+  });
+
+  it('records which PayPal call each settlement step made', () => {
+    started();
+    expect(world.auditFor('deal_juniper').map((e) => e.paypalCall)).toEqual([
+      'PUT /v2/invoicing/invoices/{id}',
+    ]);
   });
 });
 

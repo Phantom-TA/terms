@@ -18,6 +18,12 @@ export const screens: readonly ScreenDef[] = [
     roles: ['SUPPLIER'],
     load: () => import('../screens/workbench/Workbench'),
   },
+  {
+    path: '/negotiation',
+    label: 'Negotiation Room',
+    roles: ['SUPPLIER'],
+    load: () => import('../screens/negotiation/NegotiationRoom'),
+  },
 ];
 
 export function screensFor(role: BusinessRole): readonly ScreenDef[] {

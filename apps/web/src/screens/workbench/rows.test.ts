@@ -142,6 +142,14 @@ describe('toWorkbenchRows', () => {
     expect(toWorkbenchRows(invoices, 'APPROVED')[0]).not.toBe(first[0]);
   });
 
+  it('carries the server’s policy checks', () => {
+    const rows = byClient(toWorkbenchRows(world.invoiceRows(), 'DRAFT'));
+    expect(rows['Pinecrest Dental']?.policyChecks[0]).toMatchObject({
+      rule: 'doNotContact',
+      result: 'blocked',
+    });
+  });
+
   it('has no plan columns when there is no plan', () => {
     const fresh = new MockWorld();
     fresh.parseGoal(SENTENCE);
