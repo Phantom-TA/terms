@@ -17,6 +17,7 @@ import { EventBus } from './http/events.js';
 import { SessionService } from './http/session.js';
 import { type Logger } from './logger.js';
 import { NegotiationEngine } from './negotiation/engine.js';
+import { deterministicMovers } from './negotiation/simulator.js';
 import { OfferTokens } from './offers/offer-tokens.js';
 import { InvoiceService } from './paypal/invoice-service.js';
 import { PaymentService } from './paypal/payment-service.js';
@@ -88,9 +89,19 @@ export function buildServices(
   const plans = new PlanService(db, audit, deals, now);
   const ai = buildAiServices(
     overrides.aiRunner === undefined ? buildAiRunner(config.llm, logger) : overrides.aiRunner,
+    logger,
   );
   const goals = new GoalService(db, audit, now, ai?.goals ?? null);
-  const engine = new NegotiationEngine(db, audit, deals, approvals, now);
+  const negotiateWithAi = ai !== null && config.llm.negotiation === 'ai';
+  const engine = new NegotiationEngine(
+    db,
+    audit,
+    deals,
+    approvals,
+    now,
+    negotiateWithAi ? ai.movers : deterministicMovers,
+    negotiateWithAi ? ai.notes : null,
+  );
   const events = new EventBus(db, now);
   // Sessions run on the wall clock, never a business clock override.
   const sessions = new SessionService(db);

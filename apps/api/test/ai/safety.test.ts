@@ -46,3 +46,20 @@ describe('revealsPolicy', () => {
     expect(revealsPolicy('Counter: $1,000 by 2026-11-13 against invoice 1043.')).toBe(false);
   });
 });
+
+describe('unsupportedNumbers matches figures by kind', () => {
+  const facts = ['Pay $1,750.00 by 2026-11-09 at 0.80% off invoice 1043 (round 1).'];
+
+  it('does not let a date part vouch for an invented percentage or amount', () => {
+    expect(unsupportedNumbers('A 9% discount.', facts)).toEqual(['9']);
+    expect(unsupportedNumbers('That is $11 off.', facts)).toEqual(['11']);
+    expect(unsupportedNumbers('Take 1750 percent.', facts)).toEqual(['1750']);
+  });
+
+  it('accepts each figure in the form the facts state it', () => {
+    expect(unsupportedNumbers('Pay $1,750 on 9 November at 0.8% off invoice 1043.', facts)).toEqual(
+      [],
+    );
+    expect(unsupportedNumbers('Pay $1,750.00 today at 0.80%.', facts)).toEqual([]);
+  });
+});

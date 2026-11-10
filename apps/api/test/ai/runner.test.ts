@@ -53,6 +53,7 @@ const llm = (over: Partial<LlmConfig> = {}): LlmConfig => ({
   model: 'smart-model',
   fastModel: 'fast-model',
   mode: 'live',
+  negotiation: 'ai',
   fixtureDir: mkdtempSync(join(tmpdir(), 'terms-ai-')),
   configured: true,
   ...over,

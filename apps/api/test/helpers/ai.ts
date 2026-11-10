@@ -1,5 +1,5 @@
 /** A fake AI runner for tests: answers each role from a script and remembers what it was asked. */
-import { type AiRunner, type RoleCall } from '../../src/ai/runner.js';
+import { AiRoleError, type AiRunner, type RoleCall } from '../../src/ai/runner.js';
 
 export type Script = (call: RoleCall<unknown>) => unknown;
 
@@ -26,10 +26,18 @@ export class ScriptedRunner implements AiRunner {
   }
 }
 
-/** A runner that answers one role with a fixed answer and fails any other role. */
-export function answering(role: string, answer: unknown): ScriptedRunner {
+/**
+ * A runner that answers one role and is unavailable for every other, so the rest of the app falls
+ * back to its deterministic behaviour (as it does when a provider is down).
+ */
+export function forRole(role: string, answer: unknown): ScriptedRunner {
   return new ScriptedRunner((call) => {
-    if (call.role !== role) throw new Error(`unexpected role ${call.role}`);
-    return answer;
+    if (call.role !== role) return new AiRoleError('provider', call.role, 'not scripted');
+    return typeof answer === 'function' ? (answer as () => unknown)() : answer;
   });
+}
+
+/** A runner that answers one role with a fixed answer. */
+export function answering(role: string, answer: unknown): ScriptedRunner {
+  return forRole(role, () => answer);
 }

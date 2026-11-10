@@ -5,7 +5,7 @@ import { isoToDate } from '../../src/mappers.js';
 import { OfferTokens } from '../../src/offers/offer-tokens.js';
 import { testApp } from '../helpers/app.js';
 import { AiRoleError } from '../../src/ai/runner.js';
-import { ScriptedRunner } from '../helpers/ai.js';
+import { forRole, ScriptedRunner } from '../helpers/ai.js';
 import { createTestDb, resetDb } from '../helpers/db.js';
 import { FRIDAY, type ScenarioIds, seedScenario } from '../helpers/fixtures.js';
 
@@ -211,7 +211,7 @@ describe('free-text replies on the offer page (AI reply parser)', () => {
     request(app).post(`/api/offer/${token}/reply`).send({ kind: 'TEXT', text });
 
   it('reads a part payment as a counter, shows what it understood, and the supplier agent answers', async () => {
-    const runner = new ScriptedRunner(() =>
+    const runner = forRole('reply-parser', () =>
       read({ interpretation: 'COUNTER', amountEarly: '1000.00', summary: 'Pay $1,000 now' }),
     );
     const { app, services } = testApp(db, { now, noPayPal: true, aiRunner: runner });
@@ -247,7 +247,7 @@ describe('free-text replies on the offer page (AI reply parser)', () => {
   });
 
   it('cannot be talked into other terms: a demand for a bigger discount changes nothing', async () => {
-    const runner = new ScriptedRunner(() => read({ summary: 'They asked for 10% off.' }));
+    const runner = forRole('reply-parser', () => read({ summary: 'They asked for 10% off.' }));
     const { app, services } = testApp(db, { now, noPayPal: true, aiRunner: runner });
     const { dealId, token } = await harborOfferLink(services);
     const res = OfferReplyResponse.parse(
@@ -262,7 +262,7 @@ describe('free-text replies on the offer page (AI reply parser)', () => {
   });
 
   it('notes a promise to pay later without counting it, and leaves the offer open', async () => {
-    const runner = new ScriptedRunner(() =>
+    const runner = forRole('reply-parser', () =>
       read({
         interpretation: 'PROMISE_TO_PAY',
         promiseAmount: '900.00',
@@ -282,7 +282,9 @@ describe('free-text replies on the offer page (AI reply parser)', () => {
   });
 
   it('declines on a clear no', async () => {
-    const runner = new ScriptedRunner(() => read({ interpretation: 'DECLINE', summary: 'No' }));
+    const runner = forRole('reply-parser', () =>
+      read({ interpretation: 'DECLINE', summary: 'No' }),
+    );
     const { app, services } = testApp(db, { now, noPayPal: true, aiRunner: runner });
     const { token } = await harborOfferLink(services);
     const res = OfferReplyResponse.parse((await reply(app, token, 'no thanks').expect(200)).body);
@@ -300,12 +302,12 @@ describe('free-text replies on the offer page (AI reply parser)', () => {
   });
 
   it('says the offer is closed rather than reading a reply to it', async () => {
-    const runner = new ScriptedRunner(() => read({ interpretation: 'ACCEPT' }));
+    const runner = forRole('reply-parser', () => read({ interpretation: 'ACCEPT' }));
     const { app, services } = testApp(db, { now, noPayPal: true, aiRunner: runner });
     const { token } = await harborOfferLink(services);
     await request(app).post(`/api/offer/${token}/reply`).send({ kind: 'NOT_NOW' }).expect(200);
     await reply(app, token, 'actually yes').expect(409);
-    expect(runner.calls).toHaveLength(0);
+    expect(runner.callsTo('reply-parser')).toHaveLength(0);
   });
 
   it('refuses honestly when there is no AI', async () => {

@@ -27,6 +27,8 @@ const EnvSchema = z.object({
   /** live: call the provider; record: call it and save each answer; replay: use saved answers. */
   AI_MODE: z.enum(['live', 'record', 'replay']).default('live'),
   AI_FIXTURE_DIR: z.string().min(1).default('apps/api/test/fixtures/ai'),
+  /** deterministic: negotiate with the standard strategies and plain notes even when AI is set up. */
+  AI_NEGOTIATION: z.enum(['ai', 'deterministic']).default('ai'),
 
   SESSION_SECRET: optionalSecret,
   OFFER_TOKEN_SECRET: optionalSecret,
@@ -53,6 +55,7 @@ export interface Config {
     fastModel: string;
     mode: 'live' | 'record' | 'replay';
     fixtureDir: string;
+    negotiation: 'ai' | 'deterministic';
     /** True when the AI roles can answer: a key is set, or recorded answers are replayed. */
     configured: boolean;
   };
@@ -117,6 +120,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       fastModel: e.LLM_MODEL_FAST,
       mode: e.AI_MODE,
       fixtureDir: e.AI_FIXTURE_DIR,
+      negotiation: e.AI_NEGOTIATION,
       configured: apiKey !== null || e.AI_MODE === 'replay',
     },
     sessionSecret: e.SESSION_SECRET ?? DEV_ONLY_SECRET,

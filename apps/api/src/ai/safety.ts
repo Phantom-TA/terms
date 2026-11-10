@@ -24,14 +24,38 @@ export function numbersIn(text: string): Set<string> {
   return found;
 }
 
+const MONEY = /\$\s?(\d[\d,]*(?:\.\d+)?)/g;
+const PERCENT = /(\d[\d,]*(?:\.\d+)?)\s?%/g;
+
+/** The figures in `text` by kind: dollar amounts, percentages, and every other number. */
+function figuresIn(text: string): { money: Set<string>; percent: Set<string>; other: Set<string> } {
+  const grab = (pattern: RegExp, from: string): [Set<string>, string] => {
+    const found = new Set<string>();
+    const rest = from.replace(pattern, (_all, digits: string) => {
+      for (const n of numbersIn(digits)) found.add(n);
+      return ' ';
+    });
+    return [found, rest];
+  };
+  const [money, withoutMoney] = grab(MONEY, text);
+  const [percent, rest] = grab(PERCENT, withoutMoney);
+  return { money, percent, other: numbersIn(rest) };
+}
+
 /**
- * The numbers in `text` that none of the `facts` contain. Empty means every figure the model wrote
- * can be found in what it was given, so it invented none.
+ * The figures in `text` that the `facts` do not contain. Figures are matched by kind: a dollar
+ * amount must be one the facts state in dollars, a percentage one they state as a percentage, and
+ * any other number (a date part, an invoice number, a round) one they state as a plain number. So
+ * the 9 in a date cannot vouch for an invented "9%". Empty means the model invented no figure.
  */
 export function unsupportedNumbers(text: string, facts: readonly string[]): string[] {
-  const allowed = new Set<string>();
-  for (const fact of facts) for (const n of numbersIn(fact)) allowed.add(n);
-  return [...numbersIn(text)].filter((n) => !allowed.has(n));
+  const allowed = figuresIn(facts.join(' | '));
+  const used = figuresIn(text);
+  return [
+    ...[...used.money].filter((n) => !allowed.money.has(n)),
+    ...[...used.percent].filter((n) => !allowed.percent.has(n)),
+    ...[...used.other].filter((n) => !allowed.other.has(n)),
+  ];
 }
 
 /** Words in a public message that would give away a side's policy or reasoning (D-023). */
