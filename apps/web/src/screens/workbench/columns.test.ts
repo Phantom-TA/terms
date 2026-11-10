@@ -137,6 +137,12 @@ describe('money columns', () => {
 });
 
 describe('buildAutoGroupColumn', () => {
+  it('flashes the deal state and committed cells when a live update changes them', () => {
+    expect(column('dealState').enableCellChangeFlash).toBe(true);
+    expect(column('committed').enableCellChangeFlash).toBe(true);
+    expect(column('action').enableCellChangeFlash).toBeUndefined();
+  });
+
   it('keeps the client column pinned and narrower on small screens', () => {
     expect(buildAutoGroupColumn(false)).toMatchObject({ pinned: 'left', width: 210 });
     expect(buildAutoGroupColumn(true)).toMatchObject({ pinned: 'left', width: 170 });

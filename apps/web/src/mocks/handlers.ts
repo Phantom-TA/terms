@@ -10,6 +10,7 @@ import {
   StudioTurnRequest,
   VaultConfirmRequest,
   DecideApprovalRequest,
+  type InvoiceRow,
   type ServerEvent,
   type ErrorCode,
   ERROR_HTTP_STATUS,
@@ -139,6 +140,38 @@ function ownerGuard() {
 const MISSING_GOAL = () => errorResponse('NOT_FOUND', 'There is no goal yet.');
 const MISSING_PLAN = () => errorResponse('NOT_FOUND', 'There is no plan yet.');
 
+/**
+ * Browser tests of the Workbench at scale only: `sessionStorage['terms.mock.scale'] = '300'` adds
+ * that many extra invoices, copies of the demo's with their own numbers and clients, outside any
+ * plan. The demo itself never sets it.
+ */
+function scaleRows(rows: readonly InvoiceRow[]): InvoiceRow[] {
+  const extra = Number(sessionStorage.getItem('terms.mock.scale') ?? 0);
+  if (!Number.isInteger(extra) || extra <= 0) return [];
+  return Array.from({ length: extra }).flatMap((_, i) => {
+    const base = rows[i % rows.length];
+    if (!base) return [];
+    const n = (2000 + i).toString();
+    const client = (i % 12) + 1;
+    return {
+      ...base,
+      id: `inv_scale_${n}`,
+      paypalInvoiceId: `INV2-SCALE-${n}`,
+      number: n,
+      client: {
+        id: `biz_scale_${client.toString()}`,
+        name: `Scale Client ${client.toString()}`,
+        slug: `scale-client-${client.toString()}`,
+        hasAgent: client % 2 === 0,
+      },
+      contactAllowed: true,
+      planItem: null,
+      backups: [],
+      deal: null,
+    } satisfies InvoiceRow;
+  });
+}
+
 export const handlers = [
   http.get(endpoints.health.path, () => HttpResponse.json(health)),
 
@@ -260,10 +293,11 @@ export const handlers = [
     const denied = ownerGuard();
     if (denied) return denied;
     if (shouldFail()) return paypalFailure();
+    const rows = world
+      .invoiceRows()
+      .map((r) => (r.deal ? { ...r, deal: desk.summaryFor(r.deal, 'SUPPLIER') } : r));
     return HttpResponse.json({
-      rows: world
-        .invoiceRows()
-        .map((r) => (r.deal ? { ...r, deal: desk.summaryFor(r.deal, 'SUPPLIER') } : r)),
+      rows: [...rows, ...scaleRows(rows)],
       planId: world.plan?.id ?? null,
       today: '2026-11-09',
       lastSyncedAt: '2026-11-09T09:55:00Z',

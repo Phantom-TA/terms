@@ -6,7 +6,7 @@ Evidence commands, from `apps/web`: `pnpm gate` (typecheck, lint, format, Vitest
 
 **Everything below was tested against mocks generated from the shared schemas (`VITE_USE_MOCKS=true`). Nothing has been run against the real API yet.** A's routes are on `develop` now, but its demo seed creates real PayPal sandbox invoices, so a real run needs the sandbox app's credentials in the root `.env`. Status is PASS for the UI behaviour in mock mode and says so where the real API could change the result.
 
-**Last full run (Phase 5, Cash Studio with contracts-v4, 2026-11-11):** 514 unit and component tests passed; 106 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
+**Last full run (Phase 6, 2026-11-11):** 516 unit and component tests passed; 116 Playwright tests passed at both widths, with the AG Grid and AG Studio licences accepted; `pnpm build` and its mock check passed.
 
 ## Phase 1: design system and shell
 
@@ -140,6 +140,17 @@ Spike S6 first. AG Studio 3.1.0 runs a custom agent through `clientToolRunner`. 
 - `add_widget` only places an empty widget. The data mapping comes from a second, configure round.
 - Field IDs are `table.field`, and a date axis takes a grain (`runway.date::day`).
 - Studio's default theme fails colour contrast, and its data panel fails `nested-interactive`. The theme now comes from the design tokens, and the data panel is not shown.
+
+## Phase 6: polish and integration
+
+| Feature                                                      | Status      | Evidence                                                                                                                                                                           | Limits                                                                             |
+| ------------------------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| A deal's state changing is seen                              | PASS        | `finance.test.tsx` (the pill remounts with its entry animation on a new state); `columns.test.ts` (the Workbench's Deal state and Committed cells use AG Grid's cell-change flash) | Reduced-motion settings turn the animation off                                     |
+| Keyboard only: goal, plan, approval dialog, counter approval | PASS        | `keyboard.spec.ts` at both widths: Escape closes the dialog and returns focus; repeated 5 times with no failure                                                                    |                                                                                    |
+| A visible focus indicator at every stop                      | PASS        | `keyboard.spec.ts` tabs through the Workbench, Negotiation Room, Payables Desk and Settings. With focus rings removed on purpose it fails on all 40 stops                          | AG Charts and AG Grid draw their own focus; the test checks the chart's is showing |
+| Workbench at scale                                           | PASS (mock) | `scale.spec.ts`: 300 extra invoices across 12 clients; first rows about 1.4 s after building the plan, only rows in view drawn, scroll to the end about 0.1 s                      | A's `--scale` seed against the real server is not run yet                          |
+| Production build on Windows                                  | PASS        | The bundle check builds its path with `fileURLToPath` (A found `D:\D:\...` on Windows)                                                                                             | Checked by converting a Windows URL; no Windows machine here                       |
+| Three clean end-to-end runs with A on `develop`              | Not started |                                                                                                                                                                                    | Needs A and the server with PayPal sandbox credentials                             |
 
 ## Spikes
 

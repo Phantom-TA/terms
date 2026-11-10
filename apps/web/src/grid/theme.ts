@@ -31,4 +31,6 @@ export const termsGridTheme = themeQuartz.withParams({
   selectedRowBackgroundColor: 'var(--color-info-soft)',
   oddRowBackgroundColor: 'var(--color-surface)',
   iconSize: 14,
+  // A cell a live update changed flashes this, then fades.
+  valueChangeValueHighlightBackgroundColor: 'var(--color-committed-soft)',
 });
