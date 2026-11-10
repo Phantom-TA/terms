@@ -233,7 +233,8 @@ export class ApprovalService {
   }
 
   /** The other party on a deal approval, so both sides see it in their audit trail. */
-  private async visibleTo(tx: DbOrTx, approval: Approval): Promise<string[]> {
+  /** The businesses an approval concerns besides its addressee: the deal's supplier and client. */
+  async visibleTo(tx: DbOrTx, approval: Approval): Promise<string[]> {
     if (approval.dealId === null) return [];
     const deal = await tx.deal.findUnique({
       where: { id: approval.dealId },
