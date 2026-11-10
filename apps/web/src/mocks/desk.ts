@@ -52,6 +52,33 @@ const NOW = '2026-11-09T10:00:00Z';
 const CLIENT_CASH = 50_000_00n;
 
 export class TokenError extends Error {}
+
+/** The client a private entry belongs to: its own policy and saved PayPal method. */
+function privateTo(entry: AuditEntry): string | null {
+  if (entry.action === 'CLIENT_POLICY_UPDATED') return entry.subjectId;
+  if (entry.subjectType === 'VAULT_TOKEN')
+    return `biz_${entry.subjectId.replace('mock-setup-', '')}`;
+  return null;
+}
+
+/**
+ * Each side sees its own records. The owner sees everything but a client's private settings. A
+ * client sees its private settings and, on its deals, what was said, what its own side did and
+ * PayPal's steps; never the owner's decisions or the reasons behind them.
+ */
+function visibleTo(entry: AuditEntry, business: BusinessSummary, deals: ReadonlySet<string>) {
+  const owner = privateTo(entry);
+  if (business.role === 'SUPPLIER') return owner === null;
+  if (owner !== null) return owner === business.id;
+  if (entry.dealId === null || !deals.has(entry.dealId)) return false;
+  return (
+    entry.action === 'NEGOTIATION_MESSAGE' ||
+    entry.actor === 'CLIENT_AGENT' ||
+    entry.actor === 'CLIENT_HUMAN' ||
+    entry.actor === 'PAYPAL' ||
+    entry.paypalCall !== null
+  );
+}
 export class DeskValidationError extends Error {}
 
 interface OfferRecord {
@@ -244,10 +271,11 @@ export class MockDesk {
         const checks = this.clientChecks(clientId, offer);
         const blocked = checks.filter((c) => c.result === 'blocked');
         offer.policyChecks = checks;
-        offer.recommendation = blocked.some((c) => c.rule === 'hurdleRate')
-          ? 'COUNTER'
+        // A rule other than the hurdle can't be bargained over; a low return can.
+        offer.recommendation = blocked.some((c) => c.rule !== 'hurdleRate')
+          ? 'DECLINE'
           : blocked.length > 0
-            ? 'DECLINE'
+            ? 'COUNTER'
             : checks.some((c) => c.result === 'needs_approval')
               ? 'NEEDS_HUMAN'
               : 'ACCEPT';
@@ -359,14 +387,16 @@ export class MockDesk {
       [...world.deals.values()].filter((d) => d.client.id === business.id).map((d) => d.id),
     );
     const all = world.auditLog
-      .filter((e) => business.role === 'SUPPLIER' || (e.dealId !== null && mine.has(e.dealId)))
+      .filter((e) => visibleTo(e, business, mine))
       .filter((e) => !query.actor || e.actor === query.actor)
       .filter((e) => !query.action || e.action === query.action)
       .filter((e) => !query.dealId || e.dealId === query.dealId)
       .toReversed();
-    const start = query.cursor ? Number(query.cursor) : 0;
-    const end = start + query.limit;
-    return { entries: all.slice(start, end), nextCursor: end < all.length ? String(end) : null };
+    // The cursor is the last entry already shown, so new entries don't shift the next page.
+    const start = query.cursor ? all.findIndex((e) => e.id === query.cursor) + 1 : 0;
+    const page = all.slice(start, start + query.limit);
+    const more = start + query.limit < all.length;
+    return { entries: page, nextCursor: more ? (page.at(-1)?.id ?? null) : null };
   }
 
   // ------------------------------------------------------------------ connect and import

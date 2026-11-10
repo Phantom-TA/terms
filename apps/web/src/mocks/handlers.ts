@@ -104,6 +104,15 @@ function clientGuard(): { business: BusinessSummary } | { denied: Response } {
   return { business };
 }
 
+/** Runs a desk call, answering its refusals as the API would rather than as a network failure. */
+function fromDesk(run: () => Response): Response {
+  try {
+    return run();
+  } catch (error) {
+    return deskError(error);
+  }
+}
+
 function deskError(error: unknown) {
   if (error instanceof TokenError) return errorResponse('TOKEN_INVALID', error.message);
   if (error instanceof DeskValidationError)
@@ -300,7 +309,7 @@ export const handlers = [
     const body = PutSupplierPolicyRequest.safeParse(await request.json());
     if (!body.success)
       return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid');
-    return HttpResponse.json({ policy: desk.putSupplierPolicy(body.data) });
+    return fromDesk(() => HttpResponse.json({ policy: desk.putSupplierPolicy(body.data) }));
   }),
 
   http.get(endpoints.getClientPolicy.path, () => {
@@ -320,35 +329,42 @@ export const handlers = [
     const body = PutClientPolicyRequest.safeParse(await request.json());
     if (!body.success)
       return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid');
-    return HttpResponse.json({ policy: desk.putClientPolicy(session.business.id, body.data) });
+    return fromDesk(() =>
+      HttpResponse.json({ policy: desk.putClientPolicy(session.business.id, body.data) }),
+    );
   }),
 
   http.get(endpoints.listClientOffers.path, ({ request }) => {
     const session = clientGuard();
     if ('denied' in session) return session.denied;
     if (shouldFail()) return paypalFailure();
-    const query = ListClientOffersQuery.parse(
+    const query = ListClientOffersQuery.safeParse(
       Object.fromEntries(new URL(request.url).searchParams),
     );
-    return HttpResponse.json({
-      offers: desk.clientOffers(session.business.id, query.status),
-      cashPosition: desk.cashPosition(session.business.id),
-    });
+    if (!query.success) return errorResponse('VALIDATION_FAILED', 'Invalid offer filter.');
+    return fromDesk(() =>
+      HttpResponse.json({
+        offers: desk.clientOffers(session.business.id, query.data.status),
+        cashPosition: desk.cashPosition(session.business.id),
+      }),
+    );
   }),
 
   http.get(endpoints.getClientVault.path, () => {
     const session = clientGuard();
     if ('denied' in session) return session.denied;
-    return HttpResponse.json({ vault: desk.vault(session.business.id) });
+    return fromDesk(() => HttpResponse.json({ vault: desk.vault(session.business.id) }));
   }),
 
   http.post(endpoints.clientVaultSetup.path, ({ request }) => {
     const session = clientGuard();
     if ('denied' in session) return session.denied;
     if (shouldFail()) return paypalFailure();
-    return HttpResponse.json(desk.setupVault(session.business.id, new URL(request.url).origin), {
-      status: 201,
-    });
+    return fromDesk(() =>
+      HttpResponse.json(desk.setupVault(session.business.id, new URL(request.url).origin), {
+        status: 201,
+      }),
+    );
   }),
 
   http.post(endpoints.clientVaultConfirm.path, async ({ request }) => {

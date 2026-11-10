@@ -60,6 +60,19 @@ describe('client offers', () => {
     expect(desk.clientOffers('biz_harbor', 'CLOSED')).toHaveLength(1);
   });
 
+  it('declines rather than counters when a rule other than the return is broken', () => {
+    negotiated();
+    desk.putClientPolicy('biz_harbor', {
+      hurdleRatePct: '40.00',
+      targetRatePct: '45.00',
+      cashBuffer: '20000.00',
+      autoPayLimit: '2000.00',
+      earlyPayCapPerDeal: null,
+      neverPayEarlyIds: ['biz_maya'],
+    });
+    expect(desk.clientOffers('biz_harbor', 'ALL')[0]?.recommendation).toBe('DECLINE');
+  });
+
   it('works out what is spendable early above the buffer', () => {
     expect(desk.cashPosition('biz_harbor')).toMatchObject({
       available: '50000.00',
@@ -162,9 +175,41 @@ describe('audit', () => {
     expect(paypal.entries.every((e) => e.actor === 'OWNER')).toBe(true);
     const first = desk.audit(maya, { limit: 3 });
     expect(first.entries).toHaveLength(3);
-    expect(first.nextCursor).toBe('3');
+    expect(first.nextCursor).toBe(first.entries[2]?.id);
+    // A new entry arrives before the next page is asked for: nothing is repeated.
+    world.log('GOAL_UPDATED', 'Later.', 'OWNER', 'GOAL', 'goal_1');
     const second = desk.audit(maya, { limit: 3, cursor: first.nextCursor! });
-    expect(second.entries[0]?.id).not.toBe(first.entries[0]?.id);
+    const shown = new Set(first.entries.map((e) => e.id));
+    expect(second.entries.some((e) => shown.has(e.id))).toBe(false);
+    expect(second.entries[0]!.at <= first.entries[2]!.at).toBe(true);
+  });
+
+  it('keeps each side’s private records and the owner’s reasoning to itself', () => {
+    negotiated();
+    world.decideApproval('appr_harbor_counter', 'REJECTED', null);
+    desk.putClientPolicy('biz_harbor', {
+      hurdleRatePct: '14.00',
+      targetRatePct: '22.00',
+      cashBuffer: '25000.00',
+      autoPayLimit: '2500.00',
+      earlyPayCapPerDeal: null,
+      neverPayEarlyIds: [],
+    });
+    desk.setupVault('biz_juniper', 'http://x');
+
+    const owner = desk.audit(maya, { limit: 200 }).entries;
+    expect(owner.some((e) => e.action === 'CLIENT_POLICY_UPDATED')).toBe(false);
+    expect(owner.some((e) => e.action === 'VAULT_SETUP_STARTED')).toBe(false);
+
+    const client = desk.audit(harbor, { limit: 200 }).entries;
+    expect(client.some((e) => e.action === 'CLIENT_POLICY_UPDATED')).toBe(true);
+    expect(client.some((e) => e.action === 'VAULT_SETUP_STARTED')).toBe(false);
+    expect(client.some((e) => e.actor === 'OWNER')).toBe(false);
+    expect(client.some((e) => e.summary.includes('ceiling'))).toBe(false);
+    expect(client.some((e) => e.action === 'NEGOTIATION_MESSAGE')).toBe(true);
+
+    const juniperEntries = desk.audit(juniper, { limit: 200 }).entries;
+    expect(juniperEntries.some((e) => e.action === 'VAULT_SETUP_STARTED')).toBe(true);
   });
 });
 
