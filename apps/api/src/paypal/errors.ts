@@ -272,3 +272,16 @@ export function toAppError(f: PayPalFailure, what: string): AppError {
       });
   }
 }
+
+/** A 2xx whose body lacks a member Terms depends on: PayPal acted, but Terms cannot name the result. */
+export function incompleteResponse(call: string, status: number | null = null): PayPalFailure {
+  return {
+    kind: 'unreadable',
+    status,
+    name: null,
+    reason: null,
+    debugId: null,
+    call,
+    cause: null,
+  };
+}

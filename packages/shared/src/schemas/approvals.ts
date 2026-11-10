@@ -60,8 +60,10 @@ export type DecideApprovalRequest = z.infer<typeof DecideApprovalRequest>;
 export const DecideApprovalResponse = z.object({
   approval: ApprovalView,
   /**
-   * For an approved CLIENT_PAYMENT: the PayPal page where the person at the client approves the
-   * payment. The UI opens it; the deal moves on only when PayPal confirms.
+   * For an approved CLIENT_PAYMENT by a client with no saved PayPal method: PayPal's own invoice
+   * page, where the person at the client pays. PayPal does not send the person back from it, so
+   * the UI opens it in a new tab and stays where it is; the deal moves on (deal.updated) only when
+   * PayPal's payment webhook arrives. Null when Terms paid with the saved method.
    */
   paypalApprovalUrl: z.url().nullable(),
 });

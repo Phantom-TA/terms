@@ -490,14 +490,18 @@ model Deal {
 }
 
 model DealTransition {
-  id        String     @id @default(cuid(2))
-  dealId    String
-  deal      Deal       @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  fromState DealState?
-  toState   DealState
-  actor     Actor
-  reason    String
-  at        DateTime   @default(now())
+  id            String        @id @default(cuid(2))
+  dealId        String
+  deal          Deal          @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromState     DealState?
+  toState       DealState
+  actor         Actor
+  /// What both sides see.
+  reason        String
+  /// The real reason, seen only by the `privateTo` side (an agent's policy, the owner's ceiling).
+  privateReason String?
+  privateTo     BusinessRole?
+  at            DateTime      @default(now())
 
   @@index([dealId, at])
 }

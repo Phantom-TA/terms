@@ -13,6 +13,21 @@ calls is [`paypal-plan.md`](../paypal-plan.md) at the repo root.
 Every PayPal write is claimed in the `PayPalWrite` ledger before it is sent and carries the claim's
 `PayPal-Request-Id`. Every failure goes through one classification (`apps/api/src/paypal/errors.ts`).
 
+## Services
+
+| Service    | File                                     | What it does                                                                                                                                                                                                                                                                                           |
+| ---------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Invoices   | `apps/api/src/paypal/invoice-service.ts` | `applyTerms` puts an AGREED deal's discount and partial minimum on its SENT invoice (full update) → AWAITING_PAYMENT. `remind` sends a reminder after re-checking do-not-contact. `recordPayment` links an agent's capture to the invoice, falling back to an external payment carrying the capture id |
+| Vault      | `apps/api/src/paypal/vault-service.ts`   | `startSetup` returns the approval link for the client's person. `completeSetup` exchanges an APPROVED setup token for a payment token                                                                                                                                                                  |
+| Payments   | `apps/api/src/paypal/payment-service.ts` | `payWithVault`: the client's agent pays the exact agreed amount to the app owner from its own token. Above the auto-pay limit it needs an approved CLIENT_PAYMENT                                                                                                                                      |
+| Settlement | `apps/api/src/paypal/settlement.ts`      | The only code that marks a deal PAID or PARTIALLY_PAID, from a capture or from the invoice as PayPal holds it                                                                                                                                                                                          |
+| Webhooks   | `apps/api/src/paypal/webhook-service.ts` | Verifies each delivery (PayPal's API, or locally if it is down), stores it once by event id, then settles. Rejected and duplicate deliveries are audited for the owner. `ensureRegistered` registers the endpoint once                                                                                 |
+
+Every write follows claim → call → record (`WriteLedger`, `sendClaimed`). A lost answer is replayed
+with the same `PayPal-Request-Id`, or settled by re-reading the invoice. It is never reported as
+failed. The webhook tests run against two **real PayPal-signed sandbox deliveries** captured in
+spike S3, with PayPal's public signing certificate (`apps/api/test/fixtures/paypal/`).
+
 ## Spike results
 
 ### S1: full update of a SENT invoice — PASS (2026-11-10)

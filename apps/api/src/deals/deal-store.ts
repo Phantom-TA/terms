@@ -13,14 +13,22 @@ import {
 import { type AuditLogger } from '../audit.js';
 import { type Db, type DbOrTx } from '../db.js';
 import { conflict, notFound } from '../errors.js';
-import { type Deal, Prisma } from '../generated/prisma/client.js';
+import { type BusinessRole, type Deal, Prisma } from '../generated/prisma/client.js';
 
 export interface TransitionRequest {
   dealId: string;
   to: DealState;
   actor: Actor;
-  /** Plain-language reason stored in the history and the audit trail. */
+  /**
+   * Plain-language reason stored in the history and the audit trail. With `privateReason` set,
+   * this is what the other side sees, so it must not reveal the private side's policy.
+   */
   reason: string;
+  /**
+   * The real reason, for one side only: an agent's policy or the owner's ceiling. That side's
+   * history and audit trail show it; the other side sees `reason`.
+   */
+  privateReason?: { side: BusinessRole; reason: string };
   /** Expected version (optimistic lock). Omit to use the version just read. */
   expectedVersion?: number;
   /** Field updates applied atomically with the state change. */
@@ -29,6 +37,8 @@ export interface TransitionRequest {
   details?: Record<string, unknown>;
   paypalDebugId?: string | null;
   paypalRequestId?: string | null;
+  /** The PayPal call behind this transition, e.g. "PUT /v2/invoicing/invoices/{id}". */
+  paypalCall?: string | null;
 }
 
 export interface DealPatch {
@@ -131,23 +141,36 @@ export class DealStore {
           toState: req.to,
           actor: req.actor,
           reason: req.reason,
+          privateReason: req.privateReason?.reason ?? null,
+          privateTo: req.privateReason?.side ?? null,
         },
       });
       const plan = await db.plan.findUniqueOrThrow({
         where: { id: current.planId },
         select: { goal: { select: { supplierId: true } } },
       });
-      await this.audit.write(db, {
-        actor: req.actor,
-        action: 'DEAL_TRANSITION',
-        subjectType: 'DEAL',
-        subjectId: req.dealId,
-        businessIds: [plan.goal.supplierId, current.clientId],
-        summary: `${from} → ${req.to}: ${req.reason}`,
-        details: { from, to: req.to, ...(req.details ?? {}) },
-        paypalDebugId: req.paypalDebugId ?? null,
-        paypalRequestId: req.paypalRequestId ?? null,
-      });
+      const entry = (businessIds: string[], reason: string) =>
+        this.audit.write(db, {
+          actor: req.actor,
+          action: 'DEAL_TRANSITION',
+          subjectType: 'DEAL',
+          subjectId: req.dealId,
+          businessIds,
+          summary: `${from} → ${req.to}: ${reason}`,
+          details: { from, to: req.to, ...(req.details ?? {}) },
+          paypalDebugId: req.paypalDebugId ?? null,
+          paypalRequestId: req.paypalRequestId ?? null,
+          paypalCall: req.paypalCall ?? null,
+        });
+      const supplierId = plan.goal.supplierId;
+      if (req.privateReason === undefined) {
+        await entry([supplierId, current.clientId], req.reason);
+      } else {
+        const own = req.privateReason.side === 'SUPPLIER' ? supplierId : current.clientId;
+        const other = own === supplierId ? current.clientId : supplierId;
+        await entry([own], req.privateReason.reason);
+        await entry([other], req.reason);
+      }
       return { deal: await this.get(db, req.dealId), from };
     };
 

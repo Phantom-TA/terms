@@ -168,7 +168,7 @@ export class ApprovalService {
           subjectType: 'APPROVAL',
           subjectId: decided.id,
           dealId: decided.dealId,
-          businessIds: [decided.businessId, ...(await this.visibleTo(tx, decided))],
+          businessIds: [decided.businessId],
           summary: `${decided.title}: ${input.decision.toLowerCase()}`,
           details: { type: decided.type, note: input.note ?? null },
         });
@@ -201,7 +201,7 @@ export class ApprovalService {
         subjectType: 'APPROVAL',
         subjectId: approvalId,
         dealId: row.dealId,
-        businessIds: [row.businessId, ...(await this.visibleTo(tx, row))],
+        businessIds: [row.businessId],
         summary: `${row.title}: withdrawn (${reason})`,
       });
     }
@@ -230,15 +230,5 @@ export class ApprovalService {
       orderBy: { createdAt: 'desc' },
     });
     return rows.map(toApprovalView);
-  }
-
-  /** The other party on a deal approval, so both sides see it in their audit trail. */
-  private async visibleTo(tx: DbOrTx, approval: Approval): Promise<string[]> {
-    if (approval.dealId === null) return [];
-    const deal = await tx.deal.findUnique({
-      where: { id: approval.dealId },
-      select: { clientId: true, plan: { select: { goal: { select: { supplierId: true } } } } },
-    });
-    return deal === null ? [] : [deal.clientId, deal.plan.goal.supplierId];
   }
 }

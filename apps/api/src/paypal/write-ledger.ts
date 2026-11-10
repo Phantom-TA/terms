@@ -6,8 +6,10 @@
  */
 import { randomUUID } from 'node:crypto';
 import { type DbOrTx } from '../db.js';
+import { AppError } from '../errors.js';
 import { Prisma, type PayPalWrite } from '../generated/prisma/client.js';
 import { toAuditJson } from '../mappers.js';
+import { classify, mayHaveTakenEffect, type PayPalFailure } from './errors.js';
 
 export interface ClaimInput {
   /** Deterministic for the operation, e.g. `order:{dealId}`. */
@@ -95,4 +97,62 @@ export class WriteLedger {
       orderBy: { createdAt: 'asc' },
     });
   }
+}
+
+export type SendResult<T> =
+  | { ok: true; value: T; replayed: boolean }
+  /** PayPal refused it, or it never left: the claim has been released. */
+  | { ok: false; unknown: false; failure: PayPalFailure }
+  /** PayPal may have acted and a replay could not confirm it: the claim is kept UNKNOWN. */
+  | { ok: false; unknown: true; failure: PayPalFailure };
+
+/**
+ * Sends a claimed write. When the answer is lost (no response, 5xx, unreadable success), the claim
+ * is marked UNKNOWN and the same request is replayed once with the same PayPal-Request-Id, which
+ * PayPal answers with the stored result instead of acting again (spike S2). A refused or unsent
+ * write releases its claim so a corrected attempt can claim again.
+ */
+export async function sendClaimed<T>(
+  ledger: WriteLedger,
+  db: DbOrTx,
+  write: PayPalWrite,
+  call: () => Promise<T>,
+): Promise<SendResult<T>> {
+  try {
+    return { ok: true, value: await call(), replayed: false };
+  } catch (err) {
+    const failure = classify(err);
+    if (!mayHaveTakenEffect(failure)) {
+      await ledger.release(db, write.id);
+      return { ok: false, unknown: false, failure };
+    }
+    await ledger.markUnknown(db, write.id, {
+      kind: failure.kind,
+      status: failure.status,
+      debugId: failure.debugId,
+    });
+    try {
+      return { ok: true, value: await call(), replayed: true };
+    } catch (replayErr) {
+      return { ok: false, unknown: true, failure: classify(replayErr) };
+    }
+  }
+}
+
+/** The error for a write whose outcome is still unknown after the replay. */
+export function outcomeUnknown(what: string, failure: PayPalFailure): AppError {
+  return new AppError(
+    'PAYPAL_ERROR',
+    `PayPal may have ${what}, but did not confirm it; Terms will check again`,
+    {
+      retryable: false,
+      paypal: {
+        debugId: failure.debugId,
+        name: failure.name,
+        message: 'Outcome unknown',
+        httpStatus: failure.status ?? 0,
+      },
+      cause: failure.cause,
+    },
+  );
 }
