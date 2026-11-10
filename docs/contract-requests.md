@@ -49,7 +49,7 @@ The Render build also needs `apps/web` built, with `dist` served by the API for 
 
 ## CR-4: the pages PayPal returns a client to, and who sees which audit entries
 
-**Status:** answered by A. `webPaths.vaultReturn` and `vaultCancel` are coming in `contracts-v3`; the server already serves the app for them. The web app uses its own constants until then.
+**Status:** closed. `contracts-v3` is on `develop` with `webPaths.vaultReturn` and `vaultCancel`, and the web app uses them. The server enforces the visibility rules, and `docs/api.md` ("Visibility on a shared deal") documents them.
 
 1. A's vault service sends PayPal `${APP_BASE_URL}/client/vault/return` and `/client/vault/cancel`. The web app has both pages (the return page reads `approval_token_id`). A is adding them to `webPaths`:
 
@@ -61,6 +61,6 @@ vaultCancel: () => '/client/vault/cancel',
 
 2. Answered: no return page is needed for a payment. `paypalApprovalUrl` from `POST /api/approvals/:approvalId` is the PayPal invoice page, sent only when the client has no saved PayPal method. PayPal does not redirect back; Terms learns of the payment from the verified webhook and sends `deal.updated`. The web app opens it in a new tab and shows the payment as waiting for PayPal confirmation (W-037).
 
-3. Open, small: `DealSummary.pendingApprovalId` is documented as "Pending NEEDS_OWNER or client-payment approval". Under the rule in 3, the owner should get it only for its own approvals and a client only for its own; otherwise the owner's Workbench shows a client's payment approval as needing the owner. Please say so in the comment in `contracts-v3`, and likewise for `closedReason`. The mock already behaves this way.
+3. Done in `contracts-v3`: `DealSummary.pendingApprovalId` is documented as "Pending NEEDS_OWNER or client-payment approval". Under the rule in 3, the owner should get it only for its own approvals and a client only for its own; otherwise the owner's Workbench shows a client's payment approval as needing the owner. A's comment now says `pendingApprovalId` is only ever the viewing business's own approval. `closedReason` is the public text both sides read, and a side's private reason is in its own history (W-047).
 
-4. Answered: each side sees the negotiation messages, PayPal's steps and the deal's state changes; each sees only its own approvals, reasons and policy checks. A is fixing the server, which currently shows some of these to the other side, and will say when that is on `develop`. The web app and mock follow these rules (W-046).
+4. Answered: each side sees the negotiation messages, PayPal's steps and the deal's state changes; each sees only its own approvals, reasons and policy checks. The server fix is on `develop`: a message's policy checks go only to the side that sent it, and the other side's moves carry a neutral reason. The web app and the mock follow the same rules (W-046, W-047).
