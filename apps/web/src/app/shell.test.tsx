@@ -196,14 +196,25 @@ describe('app shell', () => {
     expect(
       within(nav)
         .getAllByRole('link')
-        .map((l) => l.textContent),
-    ).toEqual(['Workbench', 'Negotiation Room']);
+        .map((l) => l.firstChild?.textContent),
+    ).toEqual([
+      'Workbench',
+      'Negotiation Room',
+      'Approvals',
+      'Audit trail',
+      'Connect & import',
+      'Settings',
+    ]);
   });
 
-  it('shows a client no navigation until client screens exist, so no link goes nowhere', async () => {
+  it('links a client only to its own screens, and never to the pages PayPal returns to', async () => {
     signIn('biz_harbor');
     renderApp('/nowhere', 'biz_harbor');
-    await screen.findByLabelText('Acting as');
-    expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((l) => l.firstChild?.textContent),
+    ).toEqual(['Payables Desk', 'Approvals', 'Audit trail', 'Settings']);
   });
 });

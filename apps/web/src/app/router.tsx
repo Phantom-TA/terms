@@ -5,6 +5,24 @@ import { screens } from './screens';
 import { SessionGate } from './SessionGate';
 
 export const routes: RouteObject[] = [
+  // The page a client's person opens from an email: no session, no app around it.
+  {
+    path: '/offer/:token',
+    errorElement: <RouteError />,
+    HydrateFallback: AppLoading,
+    lazy: () => import('../screens/offer/OfferPage'),
+  },
+  // Development only: stands in for PayPal's approval page in mock mode. Vite drops it from builds.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: '/mock-paypal',
+          errorElement: <RouteError />,
+          HydrateFallback: AppLoading,
+          lazy: () => import('../screens/dev/MockPayPal'),
+        },
+      ]
+    : []),
   {
     element: <AppShell />,
     errorElement: <RouteError />,
