@@ -1,5 +1,5 @@
 import { type ListInvoicesResponse, type RunwayResponse } from '@terms/shared';
-import { type AgDataSourcesDefinition } from 'ag-studio';
+import { type AgDataSourcesDefinition, type AgFieldDefinition } from 'ag-studio';
 
 /**
  * The owner's cash data as Studio tables, for the cash strategist's widgets. Values are the
@@ -52,6 +52,30 @@ export function runwayRecords(runway: RunwayResponse): RunwayRecord[] {
   }));
 }
 
+const dollars = { format: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }) };
+
+/** The runway's fields, declared so the what-if table has them before it has any rows. */
+const RUNWAY_FIELDS: AgFieldDefinition[] = [
+  { id: 'date', name: 'Date', format: 'dateFormat' },
+  { id: 'before', name: 'Before the plan', format: 'currencyFormat', formatOptions: dollars },
+  {
+    id: 'afterCommitted',
+    name: 'With committed cash',
+    format: 'currencyFormat',
+    formatOptions: dollars,
+  },
+  {
+    id: 'afterPlanned',
+    name: 'If every offer is accepted',
+    format: 'currencyFormat',
+    formatOptions: dollars,
+  },
+];
+
+/**
+ * The tables Studio gets. Studio takes new rows for a table but no new tables once it has started,
+ * so the what-if table is there from the start, empty until the server answers a what-if.
+ */
 export function studioSources(
   invoices: ListInvoicesResponse,
   runway: RunwayResponse | null,
@@ -71,7 +95,17 @@ export function studioSources(
         description:
           'End-of-day balance: before the plan, with committed cash, and if every offer is accepted.',
         primaryKeyField: 'date',
+        fields: RUNWAY_FIELDS,
         data: runway ? runwayRecords(runway) : [],
+      },
+      {
+        id: 'scenario',
+        name: 'What-if runway',
+        description:
+          'The runway under the last what-if the server ran, such as a cap on discounts. Empty until one runs.',
+        primaryKeyField: 'date',
+        fields: [...RUNWAY_FIELDS, { id: 'label', name: 'What-if', format: 'textFormat' }],
+        data: [],
       },
     ],
   };

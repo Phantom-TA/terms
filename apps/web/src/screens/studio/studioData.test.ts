@@ -55,7 +55,15 @@ describe('the owner’s data as Studio tables', () => {
 
   it('keeps the runway table, empty, when the runway is not available', () => {
     const sources = studioSources(invoices(), null).sources;
-    expect(sources.map((s) => s.id)).toEqual(['invoices', 'runway']);
+    expect(sources.map((s) => s.id)).toEqual(['invoices', 'runway', 'scenario']);
     expect(sources[1]).toMatchObject({ data: [] });
+  });
+
+  it('starts the what-if table empty, with the runway’s fields and a label', () => {
+    const scenario = studioSources(invoices(), currentWorld().runway()).sources[2]!;
+    const runway = studioSources(invoices(), currentWorld().runway()).sources[1]!;
+    expect(scenario).toMatchObject({ id: 'scenario', data: [] });
+    const ids = (s: typeof scenario) => ('fields' in s ? (s.fields ?? []).map((f) => f.id) : []);
+    expect(ids(scenario)).toEqual([...ids(runway), 'label']);
   });
 });
