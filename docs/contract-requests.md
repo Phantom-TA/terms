@@ -64,3 +64,30 @@ vaultCancel: () => '/client/vault/cancel',
 3. Done in `contracts-v3`: `DealSummary.pendingApprovalId` is documented as "Pending NEEDS_OWNER or client-payment approval". Under the rule in 3, the owner should get it only for its own approvals and a client only for its own; otherwise the owner's Workbench shows a client's payment approval as needing the owner. A's comment now says `pendingApprovalId` is only ever the viewing business's own approval. `closedReason` is the public text both sides read, and a side's private reason is in its own history (W-047).
 
 4. Answered: each side sees the negotiation messages, PayPal's steps and the deal's state changes; each sees only its own approvals, reasons and policy checks. The server fix is on `develop`: a message's policy checks go only to the side that sent it, and the other side's moves carry a neutral reason. The web app and the mock follow the same rules (W-046, W-047).
+
+## CR-5: charting a what-if in Cash Studio, and what the strategist's model is sent
+
+**Status:** answered by A.
+
+- **Item 1:** `scenario: { label, points } | null` is coming in `contracts-v4`. It holds the runway under the last `simulate_discount_cap` in the turn; `afterBestEffort` equals `afterCommitted`; it is null when there was no what-if or no balance; it isn't carried between turns.
+- **Item 2:** the route's body limit is now 1 MB, with 256 KB for the tool definitions together, and a tool result over 32 KB is replaced by `{ truncated, bytes, note, preview }`. The 18 KB is in `inputSchema`, not `description`: every description is under 1000 characters (the longest is 567). A longer one would be kept whole in the schema (W-056).
+
+1. **What-if figures can't be charted.** `simulate_discount_cap` runs on the server, and its result reaches only the model. Studio's widgets can chart only the tables the browser gave Studio, and the browser must not work out payment outcomes. So "What if I cap discounts at 1.0%?" can be answered in words but not drawn. A suggestion; please pick whichever suits the server:
+
+```ts
+// StudioTurnResponse, optional: the runway under the last what-if the server ran in this turn.
+scenario: z.object({
+  label: z.string(),            // e.g. "Discounts capped at 1.00%"
+  points: z.array(RunwayPoint),  // same shape as GET /api/runway
+}).nullable(),
+```
+
+The browser would keep a fixed `scenario` table in Studio and replace its rows when a turn carries one. Studio takes new rows for an existing table, but not new tables after it starts. The model could then chart `scenario.afterPlanned` against `runway.afterPlanned`.
+
+2. **For the server's prompt: what the browser sends.** Nothing to change in the contract.
+
+- **Client tools:** `view_schema`, `view_page`, `view_widget`, `execute_query`, `add_widget`, `position_widget`, `configure_line_chart`, `configure_column_chart` and `configure_value`. `view_widget`, `position_widget` and the configure tools are offered only once a widget exists.
+- **Request size:** the schemas are large. `execute_query` alone is about 18 KB of JSON Schema with `$defs` and nested `anyOf`, so please check the request size limit on the route.
+- **Building a widget takes two rounds:** `add_widget` (type and position on a 12-column page), then the matching configure tool with `op: "patch"` and a `dataMapping`. Widget types are Studio's catalogue IDs (`line-chart`, `column-chart-grouped`, `value`).
+- **Fields:** IDs are `invoices.*` and `runway.*`. A date axis needs a grain, for example `runway.date::day`. Each table lists its fields in `view_schema`.
+- **Tool results:** each comes back as a `tool` message whose `output` is Studio's `{ success, response, data }`.

@@ -7,6 +7,7 @@ import {
   OfferReplyRequest,
   PutClientPolicyRequest,
   PutSupplierPolicyRequest,
+  StudioTurnRequest,
   VaultConfirmRequest,
   DecideApprovalRequest,
   type ServerEvent,
@@ -21,6 +22,7 @@ import {
 import { delay, http, HttpResponse } from 'msw';
 import { businesses, health, sessionFor } from './fixtures';
 import { DeskValidationError, MockDesk, TokenError } from './desk';
+import { mockStudioTurn } from './studio';
 import { MockWorld, PolicyBlockedError, ShapeError } from './world';
 
 const SESSION_KEY = 'terms.mock.session';
@@ -172,6 +174,15 @@ export const handlers = [
     if (denied) return denied;
     if (shouldFail()) return paypalFailure();
     return HttpResponse.json(world.currentGoal());
+  }),
+
+  http.post(endpoints.studioTurn.path, async ({ request }) => {
+    const denied = ownerGuard();
+    if (denied) return denied;
+    const body = StudioTurnRequest.safeParse(await request.json());
+    if (!body.success)
+      return errorResponse('VALIDATION_FAILED', body.error.issues[0]?.message ?? 'Invalid turn');
+    return HttpResponse.json(mockStudioTurn(body.data, world.runway()));
   }),
 
   http.post(endpoints.createGoal.path, async ({ request }) => {

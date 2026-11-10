@@ -34,6 +34,12 @@ export const screens: readonly ScreenDef[] = [
     load: () => import('../screens/negotiation/NegotiationRoom'),
   },
   {
+    path: '/studio',
+    label: 'Cash Studio',
+    roles: ['SUPPLIER'],
+    load: () => import('../screens/studio/CashStudio'),
+  },
+  {
     path: '/approvals',
     label: 'Approvals',
     roles: ['SUPPLIER', 'CLIENT'],

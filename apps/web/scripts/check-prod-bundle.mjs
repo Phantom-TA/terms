@@ -3,8 +3,10 @@
 // build never contains mocks"). Runs after `vite build`.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIST = new URL('../dist', import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the pathname is /D:/..., which join turns into D:\D:\...
+const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 
 /** Strings that exist only in MSW, src/mocks, the dev-only style guide or the mock PayPal page. */
 const FORBIDDEN = [
