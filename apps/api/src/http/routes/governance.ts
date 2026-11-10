@@ -29,6 +29,8 @@ export function registerGovernanceRoutes(router: Router, s: Services): void {
     });
     const view = toApprovalView(decided);
     await publishApproval(decided, view);
+    // The decision may have moved its deal (the owner's yes on NEEDS_OWNER).
+    if (decided.dealId !== null) await s.publishDeals([decided.dealId]);
     // A person approves in Terms; the client's agent then pays from its saved method.
     return { approval: view, paypalApprovalUrl: null };
   });

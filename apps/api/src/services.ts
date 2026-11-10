@@ -8,6 +8,8 @@ import { AuditLogger } from './audit.js';
 import { type Config } from './config.js';
 import { type Db } from './db.js';
 import { DealStore } from './deals/deal-store.js';
+import { GoalService } from './goals/goal-service.js';
+import { dealSummary, dealSummaryInclude } from './http/deal-views.js';
 import { EventBus } from './http/events.js';
 import { SessionService } from './http/session.js';
 import { type Logger } from './logger.js';
@@ -40,10 +42,13 @@ export interface Services {
   deals: DealStore;
   approvals: ApprovalService;
   plans: PlanService;
+  goals: GoalService;
   engine: NegotiationEngine;
   events: EventBus;
   sessions: SessionService;
   ledger: WriteLedger;
+  /** Publishes deal.updated for deals after their change has committed. */
+  publishDeals: (dealIds: readonly string[]) => Promise<void>;
   /** Null when PayPal credentials are not configured: PayPal routes answer NOT_CONFIGURED. */
   paypal: PayPalServices | null;
 }
@@ -67,9 +72,11 @@ export function buildServices(
   const deals = new DealStore(db, audit);
   const approvals = new ApprovalService(db, audit, now);
   const plans = new PlanService(db, audit, deals, now);
+  const goals = new GoalService(db, audit, now);
   const engine = new NegotiationEngine(db, audit, deals, approvals, now);
   const events = new EventBus(db, now);
-  const sessions = new SessionService(db, now);
+  // Sessions run on the wall clock, never a business clock override.
+  const sessions = new SessionService(db);
   const ledger = new WriteLedger(now);
 
   let paypal: PayPalServices | null = null;
@@ -101,6 +108,27 @@ export function buildServices(
       });
   });
 
+  /**
+   * Publishes the current state of deals to their supplier and client. Callers run it after their
+   * transaction commits, so screens never see a change that was rolled back.
+   */
+  const publishDeals = async (dealIds: readonly string[]): Promise<void> => {
+    if (dealIds.length === 0) return;
+    const rows = await db.deal.findMany({
+      where: { id: { in: [...new Set(dealIds)] } },
+      include: {
+        ...dealSummaryInclude,
+        plan: { select: { goal: { select: { supplierId: true } } } },
+      },
+    });
+    for (const deal of rows) {
+      await events.publish([deal.plan.goal.supplierId, deal.clientId], {
+        type: 'deal.updated',
+        data: { deal: dealSummary(deal) },
+      });
+    }
+  };
+
   return {
     config,
     db,
@@ -110,10 +138,12 @@ export function buildServices(
     deals,
     approvals,
     plans,
+    goals,
     engine,
     events,
     sessions,
     ledger,
+    publishDeals,
     paypal,
   };
 }
