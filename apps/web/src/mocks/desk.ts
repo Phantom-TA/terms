@@ -2,7 +2,7 @@ import {
   type Actor,
   type DealDetail,
   type DealSummary,
-  type PolicyRule,
+  type NegotiationMessage,
   addDays,
   type ApprovalView,
   type AuditEntry,
@@ -37,6 +37,7 @@ import {
   toCents,
   type VaultSetupResponse,
   type VaultView,
+  webPaths,
 } from '@terms/shared';
 import { BALANCE, clientRefs, type MockWorld, SUPPLIER_POLICY, TODAY } from './world';
 
@@ -67,17 +68,6 @@ function privateTo(entry: AuditEntry): string | null {
 
 type Side = BusinessSummary['role'];
 
-const CLIENT_RULES: ReadonlySet<PolicyRule> = new Set([
-  'hurdleRate',
-  'cashBuffer',
-  'autoPayLimit',
-  'earlyPayCap',
-  'neverPayEarly',
-]);
-
-/** Whose limit a check is about. */
-const sideOfRule = (rule: PolicyRule): Side => (CLIENT_RULES.has(rule) ? 'CLIENT' : 'SUPPLIER');
-
 /** Whose step this was; Terms and PayPal belong to neither side. */
 function sideOfActor(actor: Actor): Side | null {
   if (actor === 'OWNER' || actor === 'SUPPLIER_AGENT') return 'SUPPLIER';
@@ -106,17 +96,27 @@ function visibleTo(entry: AuditEntry, business: BusinessSummary, deals: Readonly
   return isShared(entry) || side === null || side === business.role;
 }
 
-/** A state change shows its reason only to the side that gave it, or when neither side did. */
+/**
+ * A state change with its reason, as on the server: a move from one side's policy carries that
+ * side's real reason for it, and a neutral one ("Countered") for the other side.
+ */
 function withReason(entry: AuditEntry, viewer: Side): AuditEntry {
-  const { reason, ...details } = entry.details;
+  const { reason, privateTo, publicReason, ...details } = entry.details;
   if (typeof reason !== 'string') return entry;
-  const side = sideOfActor(entry.actor);
-  if (side !== null && side !== viewer) return { ...entry, details };
-  return { ...entry, summary: `${entry.summary} ${reason}` };
+  const shown = privateTo === undefined || privateTo === viewer ? reason : publicReason;
+  return { ...entry, summary: `${entry.summary} ${String(shown)}`, details };
 }
 
 const approvalSide = (approval: ApprovalView): Side =>
   approval.requestedFrom === 'OWNER' ? 'SUPPLIER' : 'CLIENT';
+
+/** The side that sent a message ("supplier:maya-studio", "client:harbor"). */
+const sideOfMessage = (message: NegotiationMessage): Side =>
+  message.from.startsWith('supplier:') ? 'SUPPLIER' : 'CLIENT';
+
+/** A message's policy checks are its sender's: the other side reads []. */
+const messageFor = (message: NegotiationMessage, viewer: Side): NegotiationMessage =>
+  sideOfMessage(message) === viewer ? message : { ...message, policyChecks: [] };
 
 export class DeskValidationError extends Error {}
 
@@ -353,8 +353,8 @@ export class MockDesk {
     if (!vault) throw new DeskValidationError('This client runs no agent.');
     const setupTokenId = `mock-setup-${clientId.replace('biz_', '')}`;
     this.vaults.set(clientId, { ...vault, status: 'PENDING', setupTokenId, updatedAt: NOW });
-    const back = `/client/vault/return?approval_token_id=${setupTokenId}`;
-    const cancel = '/client/vault/cancel';
+    const back = `${webPaths.vaultReturn()}?approval_token_id=${setupTokenId}`;
+    const cancel = webPaths.vaultCancel();
     this.world().log(
       'VAULT_SETUP_STARTED',
       'Saving a PayPal method was started.',
@@ -428,34 +428,31 @@ export class MockDesk {
   // ------------------------------------------------------------------ each side's view
 
   /**
-   * A deal's summary as one side sees it: a waiting approval only if it is this side's to decide,
-   * and why it closed only if this side (or neither) closed it.
+   * A deal's summary as one side sees it: a waiting approval only if it is this side's to decide.
+   * Why it closed is the public reason both sides read.
    */
   summaryFor<T extends DealSummary>(deal: T, viewer: Side): T {
-    const world = this.world();
     const pending = deal.pendingApprovalId
-      ? world.approvals.get(deal.pendingApprovalId)
+      ? this.world().approvals.get(deal.pendingApprovalId)
       : undefined;
-    const last = world.history.get(deal.id)?.at(-1);
-    const closer = last ? sideOfActor(last.actor) : null;
     return {
       ...deal,
       pendingApprovalId: pending && approvalSide(pending) === viewer ? pending.id : null,
-      closedReason: closer === null || closer === viewer ? deal.closedReason : null,
     };
   }
 
-  /** A deal as one side sees it: the other side's checks, reasons and approvals are left out. */
+  /**
+   * A deal as one side sees it, as the server sends it: only this side's approvals, the checks on
+   * the messages this side sent, and the other side's moves with their neutral public reason.
+   */
   dealFor(detail: DealDetail, viewer: Side): DealDetail {
+    const world = this.world();
     return {
       ...this.summaryFor(detail, viewer),
-      messages: detail.messages.map((m) => ({
-        ...m,
-        policyChecks: m.policyChecks.filter((c) => sideOfRule(c.rule) === viewer),
-      })),
+      messages: detail.messages.map((m) => messageFor(m, viewer)),
       history: detail.history.map((step) => {
-        const side = sideOfActor(step.actor);
-        return side === null || side === viewer ? step : { ...step, reason: '' };
+        const hidden = world.privateReasons.get(step);
+        return hidden && hidden.side !== viewer ? { ...step, reason: hidden.publicReason } : step;
       }),
       approvals: detail.approvals.filter((a) => approvalSide(a) === viewer),
     };
@@ -483,8 +480,7 @@ export class MockDesk {
       case 'negotiation.message': {
         const { message } = event.data;
         if (!mine(message.dealId)) return null;
-        const policyChecks = message.policyChecks.filter((c) => sideOfRule(c.rule) === viewer);
-        return { ...event, data: { message: { ...message, policyChecks } } };
+        return { ...event, data: { message: messageFor(message, viewer) } };
       }
       case 'approval.requested':
       case 'approval.decided':
