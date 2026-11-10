@@ -47,7 +47,10 @@ export const NegotiationMessage = z.object({
   payNow: PositiveMoney.nullable(),
   /** Human-readable note written by the agent's model; display only. */
   note: z.string().max(NOTE_MAX_LENGTH),
-  /** Checks run by the sender's policy layer before the message was stored. */
+  /**
+   * Checks run by the sender's policy layer before the message was stored. Filled only for the
+   * sender's own side; the other side reads [].
+   */
   policyChecks: z.array(PolicyCheckView),
   expiresAt: IsoDateTime.nullable(),
   round: z.number().int().min(1).max(3),

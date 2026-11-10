@@ -26,9 +26,16 @@ export const DealSummary = z.object({
   /** True only in AGREED, INVOICE_UPDATED, AWAITING_PAYMENT, PAID, PARTIALLY_PAID. */
   countsAsCommitted: z.boolean(),
   round: z.number().int().min(0).max(3),
-  /** Pending NEEDS_OWNER or client-payment approval, if any. */
+  /**
+   * The pending approval the *viewing* business may decide, if any: the owner's NEEDS_OWNER
+   * approval, or the client's payment approval. Never the other side's, so it is null for a
+   * business that has nothing to decide on this deal, even while the deal waits on the other side.
+   */
   pendingApprovalId: Id.nullable(),
-  /** Why the deal closed, for DECLINED / EXPIRED / WITHDRAWN / FAILED. */
+  /**
+   * Why the deal closed, for DECLINED / EXPIRED / WITHDRAWN / FAILED. This is the public reason
+   * both sides read (for example "Declined"); a side's private reason is in its own history.
+   */
   closedReason: z.string().nullable(),
   updatedAt: IsoDateTime,
 });
@@ -38,6 +45,10 @@ export const DealTransition = z.object({
   from: DealState.nullable(),
   to: DealState,
   actor: Actor,
+  /**
+   * For a move that came from one side's policy, the real reason when the viewing business made
+   * the move, and a neutral public reason (for example "Countered") otherwise.
+   */
   reason: z.string(),
   at: IsoDateTime,
 });
