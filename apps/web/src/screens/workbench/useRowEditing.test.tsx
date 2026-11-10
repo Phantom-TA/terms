@@ -114,6 +114,35 @@ describe('useRowEditing', () => {
     expect(currentWorld().plan?.summary.plannedCost).toBe('61.00');
   });
 
+  it('keeps a row marked as saving until its last queued edit is done', async () => {
+    setup('Harbor & Co', 'discountPct', '1.0');
+    const releases: (() => void)[] = [];
+    server.use(
+      http.patch(endpoints.updatePlanItem.path, async () => {
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return HttpResponse.json(
+          currentWorld().updateItem('item_inv_harbor', { discountPct: '1.00' }),
+        );
+      }),
+    );
+    await apply();
+    await apply();
+    expect(await screen.findByText('saving: inv_harbor')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(releases).toHaveLength(1);
+    });
+    releases[0]!();
+    // The second edit is now in flight, so the row is still saving.
+    await waitFor(() => {
+      expect(releases).toHaveLength(2);
+    });
+    expect(screen.getByText('saving: inv_harbor')).toBeInTheDocument();
+    releases[1]!();
+    await waitFor(() => {
+      expect(screen.getByText('saving: none')).toBeInTheDocument();
+    });
+  });
+
   it('dims the row while the change is in flight, then clears it', async () => {
     setup('Harbor & Co', 'discountPct', '1.0');
     let release: () => void = () => {};
