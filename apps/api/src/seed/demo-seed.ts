@@ -76,6 +76,8 @@ export interface SeedReport {
   businesses: Record<keyof DemoAccounts, string>;
   invoices: { number: string; paypalInvoiceId: string; created: boolean; sent: boolean }[];
   cancelled: string[];
+  /** Open invoices the seed left alone, and why. */
+  skipped: { paypalInvoiceId: string; reason: string }[];
   payrollDate: string;
   sync: SyncResult;
   harborVault: 'registered' | 'already saved' | 'not set';
@@ -188,9 +190,9 @@ export class DemoSeed {
     });
   }
 
-  /** Open invoices in Maya's PayPal account (every page, capped). */
-  private async openPayPalInvoices(): Promise<string[]> {
-    const open: string[] = [];
+  /** Open invoices in Maya's PayPal account (every page, capped), with their status. */
+  private async openPayPalInvoices(): Promise<Map<string, string>> {
+    const open = new Map<string, string>();
     for (let page = 1; page <= 20; page++) {
       const res = await this.paypal.rest.request({
         method: 'GET',
@@ -198,11 +200,10 @@ export class DemoSeed {
         query: { page, page_size: 100, total_required: true },
         schema: ListPage,
       });
-      open.push(
-        ...res.data.items
-          .filter((i) => ['SENT', 'UNPAID', 'PARTIALLY_PAID', 'SCHEDULED'].includes(i.status))
-          .map((i) => i.id),
-      );
+      for (const i of res.data.items) {
+        if (['SENT', 'UNPAID', 'PARTIALLY_PAID', 'SCHEDULED'].includes(i.status))
+          open.set(i.id, i.status);
+      }
       if (res.data.items.length === 0 || page >= (res.data.total_pages ?? page)) break;
     }
     return open;
@@ -360,18 +361,33 @@ export class DemoSeed {
     await this.upsertPolicies(businesses);
 
     const cancelled: string[] = [];
+    const skipped: SeedReport['skipped'] = [];
     if (options.reset === true || options.cancelStray === true) {
-      const open = new Set(await this.openPayPalInvoices());
+      const open = await this.openPayPalInvoices();
       const mirrored = await this.db.invoice.findMany({
         where: { supplierId: businesses.maya, isDemo: true },
       });
       const targets =
         options.cancelStray === true
-          ? [...open]
+          ? [...open.keys()]
           : mirrored.map((i) => i.paypalInvoiceId).filter((id) => open.has(id));
       for (const id of targets) {
-        await this.cancel(id);
-        cancelled.push(id);
+        // A partly paid invoice has money on it: it is left alone, never cancelled.
+        if (open.get(id) === 'PARTIALLY_PAID') {
+          skipped.push({ paypalInvoiceId: id, reason: 'partly paid' });
+          continue;
+        }
+        try {
+          await this.cancel(id);
+          cancelled.push(id);
+        } catch (err) {
+          const f = classify(err);
+          if (f.kind !== 'refused') throw toAppError(f, 'invoice');
+          skipped.push({
+            paypalInvoiceId: id,
+            reason: `PayPal refused: ${f.reason ?? String(f.status)}`,
+          });
+        }
       }
     }
     if (options.reset === true) await this.clearHistory(businesses.maya);
@@ -434,6 +450,6 @@ export class DemoSeed {
       },
       data: { isDemo: false },
     });
-    return { businesses, invoices, cancelled, payrollDate, sync, harborVault };
+    return { businesses, invoices, cancelled, skipped, payrollDate, sync, harborVault };
   }
 }

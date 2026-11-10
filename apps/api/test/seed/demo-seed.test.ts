@@ -20,10 +20,11 @@ afterAll(async () => {
 /** A fake PayPal account that keeps the invoices it is asked to create, like the sandbox does. */
 function fakeSandbox(options: { duplicateNumbers?: boolean; stray?: string[] } = {}) {
   const invoices = new Map<string, Record<string, unknown>>();
-  for (const id of options.stray ?? []) {
+  for (const entry of options.stray ?? []) {
+    const [id = entry, status = 'SENT'] = entry.split(':');
     invoices.set(id, {
       id,
-      status: 'SENT',
+      status,
       detail: { invoice_number: id },
       amount: { currency_code: 'USD', value: '10.00' },
       primary_recipients: [],
@@ -66,6 +67,9 @@ function fakeSandbox(options: { duplicateNumbers?: boolean; stray?: string[] } =
       return new Response(null, { status: 202 });
     }
     const cancel = /^\/v2\/invoicing\/invoices\/([^/]+)\/cancel$/.exec(path);
+    if (cancel?.[1] === 'INV2-SPIKE-LOCKED') {
+      return jsonResponse(422, paypalError('CANNOT_CANCEL', 'Invoice cannot be cancelled'));
+    }
     if (cancel !== null) {
       invoices.get(cancel[1]!)!['status'] = 'CANCELLED';
       return new Response(null, { status: 204 });
@@ -163,7 +167,9 @@ describe('demo seed (fake sandbox)', () => {
   });
 
   it('resets a previous run and cancels stray invoices when asked', async () => {
-    const sandbox = fakeSandbox({ stray: ['INV2-SPIKE-1'] });
+    const sandbox = fakeSandbox({
+      stray: ['INV2-SPIKE-1', 'INV2-SPIKE-PART:PARTIALLY_PAID', 'INV2-SPIKE-LOCKED'],
+    });
     const { seed } = seeder(sandbox.stub.fetch);
     const first = await seed.run({ now });
     // The spike leftover is imported but not labelled demo.
@@ -181,6 +187,14 @@ describe('demo seed (fake sandbox)', () => {
     expect(second.cancelled.sort()).toEqual(
       [...first.invoices.map((i) => i.paypalInvoiceId), 'INV2-SPIKE-1'].sort(),
     );
+    // Money on a partly paid invoice is never cancelled; a refusal is reported, not fatal.
+    expect(second.skipped).toEqual([
+      { paypalInvoiceId: 'INV2-SPIKE-PART', reason: 'partly paid' },
+      {
+        paypalInvoiceId: 'INV2-SPIKE-LOCKED',
+        reason: 'PayPal refused: Invoice cannot be cancelled',
+      },
+    ]);
     expect(second.invoices.map((i) => i.number)).toEqual([
       '1038-B',
       '1039-B',
@@ -189,8 +203,13 @@ describe('demo seed (fake sandbox)', () => {
       '1043-B',
     ]);
     expect(second.harborVault).toBe('registered');
-    // Cancelled invoices stay cancelled in the mirror; the open ones are this run's.
-    const open = await db.invoice.findMany({ where: { paypalStatus: 'SENT' } });
+    // Cancelled invoices stay cancelled in the mirror; the open demo rows are this run's, and the
+    // one PayPal would not cancel stays open but is not labelled demo.
+    const open = await db.invoice.findMany({ where: { paypalStatus: 'SENT', isDemo: true } });
+    expect(
+      (await db.invoice.findUniqueOrThrow({ where: { paypalInvoiceId: 'INV2-SPIKE-LOCKED' } }))
+        .isDemo,
+    ).toBe(false);
     expect(open.map((i) => i.number).sort()).toEqual([
       '1038-B',
       '1039-B',

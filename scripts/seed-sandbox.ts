@@ -48,6 +48,7 @@ try {
   console.log('Demo seed complete');
   if (report.cancelled.length > 0)
     console.log(`  cancelled ${String(report.cancelled.length)} open invoices`);
+  for (const k of report.skipped) console.log(`  left open: ${k.paypalInvoiceId} (${k.reason})`);
   for (const i of report.invoices) {
     console.log(
       `  invoice ${i.number}: ${i.paypalInvoiceId}${i.created ? ' (created)' : ''}${i.sent ? ', sent' : ''}`,
