@@ -182,15 +182,18 @@ describe('Payables Desk', () => {
     negotiated();
     const desk = currentDesk();
     desk.confirmVault('biz_juniper', desk.setupVault('biz_juniper', 'http://x').setupTokenId);
-    const close = vi.fn();
-    vi.spyOn(browser, 'openTab').mockReturnValue({ go: vi.fn(), close });
+    const openTab = vi.spyOn(browser, 'openTab');
     renderDesk();
     const card = await screen.findByRole('region', { name: /Needs your approval/ });
+    // The saved method is known before deciding, so no PayPal tab is opened at all.
+    expect(await screen.findByText('juniper@business.example.com')).toBeInTheDocument();
     await userEvent.click(within(card).getByRole('button', { name: 'Approve payment' }));
     expect(
       await screen.findByText('Approved. Paying from your saved PayPal method'),
     ).toBeInTheDocument();
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(openTab).not.toHaveBeenCalled();
+    // PayPal's webhook confirms the agent's payment (its event is covered in client.spec.ts).
+    expect(currentWorld().dealDetail('deal_juniper')?.state).toBe('PAID');
   });
 
   it('points to the invoice on the desk when the browser blocks the new tab', async () => {

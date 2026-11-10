@@ -19,10 +19,12 @@ export function useClientOffers(status: OfferStatus) {
   });
 }
 
-export function useVault() {
+/** The client's saved PayPal method. Pass `enabled: false` where the viewer may be the owner. */
+export function useVault(enabled = true) {
   return useQuery({
     queryKey: payablesKeys.vault,
     queryFn: async () => (await api('getClientVault')).vault,
+    enabled,
   });
 }
 

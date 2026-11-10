@@ -7,6 +7,7 @@ import { formatDateTime, formatPercent } from '../../lib/display';
 import { Button } from '../../ui/Button';
 import { ErrorState } from '../../ui/ErrorState';
 import { useToast } from '../../ui/Toast';
+import { useVault } from '../payables/queries';
 import { useDecideApproval } from './queries';
 
 type Decision = 'APPROVED' | 'REJECTED';
@@ -31,14 +32,18 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
   const [chosen, setChosen] = useState<Decision | null>(null);
   const { costImpact, terms } = approval;
   const payment = approval.type === 'CLIENT_PAYMENT';
+  // With a saved method the agent pays, so there is no PayPal page to open.
+  const vault = useVault(payment);
+  const paysOnPayPal = payment && vault.data?.status !== 'ACTIVE';
   const over =
     costImpact && toCents(costImpact.overCeilingBy) > 0n ? costImpact.overCeilingBy : null;
 
   const send = async (decision: Decision) => {
     setChosen(decision);
     onDecide?.();
-    // A payment may be paid on PayPal's invoice page, in a new tab. Open it now, at the click.
-    const tab = payment && decision === 'APPROVED' ? browser.openTab('Opening PayPal…') : null;
+    // The payment is made on PayPal's invoice page, in a new tab. Open it now, at the click, or
+    // the browser may block it once the address arrives.
+    const tab = paysOnPayPal && decision === 'APPROVED' ? browser.openTab('Opening PayPal…') : null;
     let result;
     try {
       // Awaited: the card leaves the page once the server's answer arrives.
@@ -56,7 +61,6 @@ export function ApprovalCard({ approval, onDecide, context }: ApprovalCardProps)
       return; // Anything else is shown on the card from the mutation's error.
     }
     if (!payment || decision === 'REJECTED') {
-      tab?.close();
       toast({
         tone: 'success',
         title: decision === 'APPROVED' ? 'Approved' : 'Rejected',

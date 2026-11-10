@@ -1142,10 +1142,25 @@ export class MockWorld {
     return { approval, events };
   }
 
+  /** Whether this deal waits for PayPal on a payment the client has approved. */
+  paymentApproved(dealId: string): boolean {
+    const deal = [...this.deals.values()].find((d) => d.id === dealId);
+    return (
+      deal?.state === 'AWAITING_PAYMENT' &&
+      [...this.approvals.values()].some(
+        (a) => a.dealId === dealId && a.type === 'CLIENT_PAYMENT' && a.decision === 'APPROVED',
+      )
+    );
+  }
+
   /** PayPal's verified webhook for a payment on this deal: the only way a deal becomes PAID. */
   confirmPayment(dealId: string): ServerEvent[] {
     const deal = [...this.deals.values()].find((d) => d.id === dealId) ?? bad('No deal');
     if (deal.state !== 'AWAITING_PAYMENT') bad('This deal is not waiting for a payment.');
+    const waiting = [...this.approvals.values()].some(
+      (a) => a.dealId === dealId && a.decision === 'PENDING',
+    );
+    if (waiting) bad('A person has not approved this payment yet.');
     return [
       this.record(
         deal.id,

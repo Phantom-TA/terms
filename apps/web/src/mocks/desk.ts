@@ -1,6 +1,7 @@
 import {
   type Actor,
   type DealDetail,
+  type DealSummary,
   type PolicyRule,
   addDays,
   type ApprovalView,
@@ -107,30 +108,16 @@ function visibleTo(entry: AuditEntry, business: BusinessSummary, deals: Readonly
 
 /** A state change shows its reason only to the side that gave it, or when neither side did. */
 function withReason(entry: AuditEntry, viewer: Side): AuditEntry {
-  const reason = entry.details['reason'];
+  const { reason, ...details } = entry.details;
   if (typeof reason !== 'string') return entry;
   const side = sideOfActor(entry.actor);
-  if (side !== null && side !== viewer) return entry;
+  if (side !== null && side !== viewer) return { ...entry, details };
   return { ...entry, summary: `${entry.summary} ${reason}` };
 }
 
-/** A deal as one side sees it: the other side's checks, reasons and approvals are left out. */
-export function dealFor(detail: DealDetail, viewer: Side): DealDetail {
-  return {
-    ...detail,
-    messages: detail.messages.map((m) => ({
-      ...m,
-      policyChecks: m.policyChecks.filter((c) => sideOfRule(c.rule) === viewer),
-    })),
-    history: detail.history.map((step) => {
-      const side = sideOfActor(step.actor);
-      return side === null || side === viewer ? step : { ...step, reason: '' };
-    }),
-    approvals: detail.approvals.filter(
-      (a) => (a.requestedFrom === 'OWNER' ? 'SUPPLIER' : 'CLIENT') === viewer,
-    ),
-  };
-}
+const approvalSide = (approval: ApprovalView): Side =>
+  approval.requestedFrom === 'OWNER' ? 'SUPPLIER' : 'CLIENT';
+
 export class DeskValidationError extends Error {}
 
 interface OfferRecord {
@@ -436,6 +423,86 @@ export class MockDesk {
       amount: approval.paymentAmount ?? '',
     });
     return `${origin}/mock-paypal?${params.toString()}`;
+  }
+
+  // ------------------------------------------------------------------ each side's view
+
+  /**
+   * A deal's summary as one side sees it: a waiting approval only if it is this side's to decide,
+   * and why it closed only if this side (or neither) closed it.
+   */
+  summaryFor<T extends DealSummary>(deal: T, viewer: Side): T {
+    const world = this.world();
+    const pending = deal.pendingApprovalId
+      ? world.approvals.get(deal.pendingApprovalId)
+      : undefined;
+    const last = world.history.get(deal.id)?.at(-1);
+    const closer = last ? sideOfActor(last.actor) : null;
+    return {
+      ...deal,
+      pendingApprovalId: pending && approvalSide(pending) === viewer ? pending.id : null,
+      closedReason: closer === null || closer === viewer ? deal.closedReason : null,
+    };
+  }
+
+  /** A deal as one side sees it: the other side's checks, reasons and approvals are left out. */
+  dealFor(detail: DealDetail, viewer: Side): DealDetail {
+    return {
+      ...this.summaryFor(detail, viewer),
+      messages: detail.messages.map((m) => ({
+        ...m,
+        policyChecks: m.policyChecks.filter((c) => sideOfRule(c.rule) === viewer),
+      })),
+      history: detail.history.map((step) => {
+        const side = sideOfActor(step.actor);
+        return side === null || side === viewer ? step : { ...step, reason: '' };
+      }),
+      approvals: detail.approvals.filter((a) => approvalSide(a) === viewer),
+    };
+  }
+
+  /** What the event stream sends this business, or null. Each side hears only its own records. */
+  eventFor(event: ServerEvent, business: BusinessSummary): ServerEvent | null {
+    const viewer = business.role;
+    const world = this.world();
+    const mine = (dealId: string | null) =>
+      viewer === 'SUPPLIER' ||
+      [...world.deals.values()].some((d) => d.id === dealId && d.client.id === business.id);
+    switch (event.type) {
+      case 'heartbeat':
+        return event;
+      case 'invoice.updated':
+      case 'plan.updated':
+      case 'runway.updated':
+      case 'sync.completed':
+        return viewer === 'SUPPLIER' ? event : null;
+      case 'deal.updated':
+        return mine(event.data.deal.id)
+          ? { ...event, data: { deal: this.summaryFor(event.data.deal, viewer) } }
+          : null;
+      case 'negotiation.message': {
+        const { message } = event.data;
+        if (!mine(message.dealId)) return null;
+        const policyChecks = message.policyChecks.filter((c) => sideOfRule(c.rule) === viewer);
+        return { ...event, data: { message: { ...message, policyChecks } } };
+      }
+      case 'approval.requested':
+      case 'approval.decided':
+        return approvalSide(event.data.approval) === viewer && mine(event.data.approval.dealId)
+          ? event
+          : null;
+      case 'audit.appended': {
+        const deals = new Set(
+          [...world.deals.values()].filter((d) => d.client.id === business.id).map((d) => d.id),
+        );
+        return visibleTo(event.data.entry, business, deals)
+          ? { ...event, data: { entry: withReason(event.data.entry, viewer) } }
+          : null;
+      }
+      default:
+        // Anything else is about the owner's goal and plan.
+        return viewer === 'SUPPLIER' ? event : null;
+    }
   }
 
   // ------------------------------------------------------------------ audit

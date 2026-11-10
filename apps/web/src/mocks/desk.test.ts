@@ -11,7 +11,7 @@ import {
   VaultView,
 } from '@terms/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dealFor, DeskValidationError, MockDesk, TokenError } from './desk';
+import { DeskValidationError, MockDesk, TokenError } from './desk';
 import { businesses } from './fixtures';
 import { MockWorld } from './world';
 
@@ -258,7 +258,7 @@ describe('a deal as each side sees it', () => {
 
   it('shows the owner only the owner’s checks, reasons and approvals', () => {
     negotiated();
-    const deal = dealFor(world.dealDetail('deal_juniper')!, 'SUPPLIER');
+    const deal = desk.dealFor(world.dealDetail('deal_juniper')!, 'SUPPLIER');
     const checks = deal.messages.flatMap((m) => m.policyChecks.map((c) => c.rule));
     expect(checks.length).toBeGreaterThan(0);
     expect(checks.some((r) => clientRules.includes(r))).toBe(false);
@@ -268,12 +268,81 @@ describe('a deal as each side sees it', () => {
 
   it('shows a client only the client’s checks, reasons and approvals', () => {
     negotiated();
-    const deal = dealFor(world.dealDetail('deal_harbor')!, 'CLIENT');
+    const deal = desk.dealFor(world.dealDetail('deal_harbor')!, 'CLIENT');
     const checks = deal.messages.flatMap((m) => m.policyChecks.map((c) => c.rule));
     expect(checks.every((r) => clientRules.includes(r))).toBe(true);
     expect(deal.approvals).toEqual([]);
     expect(JSON.stringify(deal)).not.toMatch(/ceiling|your maximum/i);
     expect(deal.history.map((h) => h.to)).toContain('NEEDS_OWNER');
+  });
+});
+
+describe('what each side hears and is told', () => {
+  it('tells the owner nothing waits on it while the client approves its own payment', () => {
+    negotiated();
+    const juniperDeal = [...world.deals.values()].find((d) => d.id === 'deal_juniper')!;
+    expect(juniperDeal.pendingApprovalId).toBe('appr_juniper_payment');
+    expect(desk.summaryFor(juniperDeal, 'SUPPLIER').pendingApprovalId).toBeNull();
+    expect(desk.summaryFor(juniperDeal, 'CLIENT').pendingApprovalId).toBe('appr_juniper_payment');
+  });
+
+  it('keeps the owner’s reason for closing a deal from the client', () => {
+    negotiated();
+    world.decideApproval('appr_harbor_counter', 'REJECTED', null);
+    const harborDeal = [...world.deals.values()].find((d) => d.id === 'deal_harbor')!;
+    expect(desk.summaryFor(harborDeal, 'SUPPLIER').closedReason).toBe('You rejected the counter.');
+    expect(desk.summaryFor(harborDeal, 'CLIENT').closedReason).toBeNull();
+  });
+
+  it('never sends a hidden reason in an audit entry’s details', () => {
+    negotiated();
+    const entries = desk.audit(harbor, { limit: 200 }).entries;
+    const transitions = entries.filter((e) => e.action === 'DEAL_TRANSITION');
+    expect(transitions.length).toBeGreaterThan(0);
+    expect(JSON.stringify(entries)).not.toMatch(/ceiling|your maximum/i);
+  });
+
+  it('streams each side only its own events', () => {
+    negotiated();
+    const all = [
+      ...world.decideApproval('appr_harbor_counter', 'APPROVED', null).events,
+      ...world.decideApproval('appr_juniper_payment', 'APPROVED', null).events,
+    ];
+    const heard = (business: typeof maya) =>
+      all.flatMap((e) => {
+        const seen = desk.eventFor(e, business);
+        return seen ? [seen] : [];
+      });
+
+    const owner = heard(maya);
+    expect(owner.some((e) => e.type === 'plan.updated' || e.type === 'invoice.updated')).toBe(true);
+    const ownerApprovals = owner.flatMap((e) =>
+      e.type === 'approval.decided' ? [e.data.approval.id] : [],
+    );
+    expect(ownerApprovals).toEqual(['appr_harbor_counter']);
+
+    const client = heard(harbor);
+    expect(client.some((e) => e.type === 'plan.updated' || e.type === 'invoice.updated')).toBe(
+      false,
+    );
+    expect(client.some((e) => e.type.startsWith('approval.'))).toBe(false);
+    const dealIds = client.flatMap((e) => (e.type === 'deal.updated' ? [e.data.deal.id] : []));
+    expect(dealIds.length).toBeGreaterThan(0);
+    expect(dealIds.every((id) => id === 'deal_harbor')).toBe(true);
+    const checks = client.flatMap((e) =>
+      e.type === 'negotiation.message' ? e.data.message.policyChecks.map((c) => c.rule) : [],
+    );
+    expect(checks).not.toContain('maxDiscount');
+    expect(checks).not.toContain('costCeiling');
+    expect(JSON.stringify(client)).not.toMatch(/ceiling|your maximum/i);
+  });
+
+  it('confirms a payment only once a person has approved it', () => {
+    negotiated();
+    expect(world.paymentApproved('deal_juniper')).toBe(false);
+    expect(() => world.confirmPayment('deal_juniper')).toThrow('not approved');
+    world.decideApproval('appr_juniper_payment', 'APPROVED', null);
+    expect(world.paymentApproved('deal_juniper')).toBe(true);
   });
 });
 

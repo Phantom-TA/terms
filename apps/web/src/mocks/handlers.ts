@@ -20,7 +20,7 @@ import {
 } from '@terms/shared';
 import { delay, http, HttpResponse } from 'msw';
 import { businesses, health, sessionFor } from './fixtures';
-import { dealFor, DeskValidationError, MockDesk, TokenError } from './desk';
+import { DeskValidationError, MockDesk, TokenError } from './desk';
 import { MockWorld, PolicyBlockedError, ShapeError } from './world';
 
 const SESSION_KEY = 'terms.mock.session';
@@ -89,7 +89,7 @@ function paypalFailure() {
   return HttpResponse.json(body, { status: 502 });
 }
 
-function sessionBusiness(): BusinessSummary | null {
+export function sessionBusiness(): BusinessSummary | null {
   const id = sessionStorage.getItem(SESSION_KEY);
   return id === null ? null : (sessionFor(id)?.business ?? null);
 }
@@ -250,7 +250,9 @@ export const handlers = [
     if (denied) return denied;
     if (shouldFail()) return paypalFailure();
     return HttpResponse.json({
-      rows: world.invoiceRows(),
+      rows: world
+        .invoiceRows()
+        .map((r) => (r.deal ? { ...r, deal: desk.summaryFor(r.deal, 'SUPPLIER') } : r)),
       planId: world.plan?.id ?? null,
       today: '2026-11-09',
       lastSyncedAt: '2026-11-09T09:55:00Z',
@@ -276,27 +278,28 @@ export const handlers = [
     if (denied) return denied;
     return HttpResponse.json({
       planId: world.plan?.id ?? null,
-      deals: [...world.deals.values()],
+      deals: [...world.deals.values()].map((d) => desk.summaryFor(d, 'SUPPLIER')),
     });
   }),
 
-  http.get(endpoints.getDeal.path, ({ params }) => {
+  http.get(endpoints.getDeal.path, ({ params, request }) => {
     const business = sessionBusiness();
     if (!business) return errorResponse('UNAUTHENTICATED', 'No demo session.');
     const detail = world.dealDetail(String(params['dealId']));
     // A client sees only its own deals, and each side only its own checks, reasons and approvals.
     if (!detail || (business.role === 'CLIENT' && detail.client.id !== business.id))
       return errorResponse('NOT_FOUND', 'That deal does not exist.');
-    // A payment approved without a saved method is paid on PayPal's invoice page.
+    // A payment approved without a saved method is paid on PayPal's invoice page. The link, and
+    // whether the client has a saved method at all, are the client's own.
     const approved = detail.approvals.find(
       (a) => a.type === 'CLIENT_PAYMENT' && a.decision === 'APPROVED',
     );
     const payerUrl =
-      detail.state === 'AWAITING_PAYMENT' && approved
-        ? desk.paymentApprovalUrl(approved, detail.client.id, location.origin)
+      business.role === 'CLIENT' && detail.state === 'AWAITING_PAYMENT' && approved
+        ? desk.paymentApprovalUrl(approved, detail.client.id, new URL(request.url).origin)
         : null;
     return HttpResponse.json(
-      dealFor({ ...detail, paypal: { ...detail.paypal, payerUrl } }, business.role),
+      desk.dealFor({ ...detail, paypal: { ...detail.paypal, payerUrl } }, business.role),
     );
   }),
 
@@ -451,8 +454,10 @@ export const handlers = [
         ? desk.paymentApprovalUrl(approval, business.id, new URL(request.url).origin)
         : null;
       // With a saved method the agent pays at once, and PayPal's webhook confirms it.
-      if (paying && paypalApprovalUrl === null && approval.dealId)
-        events.push(...world.confirmPayment(approval.dealId));
+      if (paying && paypalApprovalUrl === null && approval.dealId) {
+        if (world.dealDetail(approval.dealId)?.state === 'AWAITING_PAYMENT')
+          events.push(...world.confirmPayment(approval.dealId));
+      }
       mockHooks.emit?.(events);
       return HttpResponse.json({ approval, paypalApprovalUrl });
     } catch (error) {
