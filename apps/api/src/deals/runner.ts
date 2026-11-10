@@ -183,8 +183,9 @@ export class DealRunner {
             dealId: deal.id,
             to: 'WITHDRAWN',
             actor: 'SYSTEM',
-            reason: 'Goal met: no longer needed',
-            patch: { closedReason: 'Goal met' },
+            // The goal is the owner's business: the client reads only that the offer was withdrawn.
+            reason: 'Withdrawn by the supplier',
+            privateReason: { side: 'SUPPLIER', reason: 'Goal met: no longer needed' },
           },
           tx,
         );
@@ -303,7 +304,16 @@ export class DealRunner {
       },
     });
     // The owner approved this backup with the plan (within its ceiling) or explicitly.
-    await this.d.deals.transition({ dealId: deal.id, to: 'APPROVED', actor: 'OWNER', reason }, db);
+    await this.d.deals.transition(
+      {
+        dealId: deal.id,
+        to: 'APPROVED',
+        actor: 'OWNER',
+        reason: 'Approved',
+        privateReason: { side: 'SUPPLIER', reason },
+      },
+      db,
+    );
     return deal.id;
   }
 

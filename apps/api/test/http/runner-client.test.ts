@@ -140,7 +140,9 @@ describe('deal runner: stop rule and backups', () => {
     expect(history[0]).toMatchObject({
       toState: 'APPROVED',
       actor: 'OWNER',
-      reason: 'Backup within the approved ceiling',
+      reason: 'Approved',
+      privateReason: 'Backup within the approved ceiling',
+      privateTo: 'SUPPLIER',
     });
   });
 

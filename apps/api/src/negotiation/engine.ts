@@ -52,6 +52,11 @@ export type HumanReply =
 /** How long an offer or counter stays open. */
 export const OFFER_TTL_MS = 48 * 60 * 60 * 1000;
 
+/** What the other side reads when a move's real reason is private to the side that made it. */
+const COUNTERED = 'Countered';
+const DECLINED = 'Declined';
+const WAITING_FOR_SUPPLIER = 'Waiting for the supplier';
+
 const CLOSED: readonly DealState[] = ['DECLINED', 'EXPIRED', 'WITHDRAWN', 'FAILED', 'REMOVED'];
 
 export function termsToWire(t: Terms): NegotiationTerms {
@@ -190,25 +195,40 @@ export class NegotiationEngine {
         expiresAt: m.expiresAt,
       },
     });
-    await this.audit.write(tx, {
-      actor: m.actor,
-      action: 'NEGOTIATION_MESSAGE',
-      subjectType: 'DEAL',
-      subjectId: ctx.deal.id,
-      businessIds: ctx.businessIds,
-      summary: `${m.type} round ${String(m.round)}: ${m.note}`,
-      details: {
-        type: m.type,
-        round: m.round,
-        terms: m.terms === null ? null : termsToWire(m.terms),
-        policyChecks: m.checks,
-      },
-    });
+    // The policy checks are the sender's: the other side gets the same entry without them.
+    const entry = (businessIds: readonly string[], withChecks: boolean) =>
+      this.audit.write(tx, {
+        actor: m.actor,
+        action: 'NEGOTIATION_MESSAGE',
+        subjectType: 'DEAL',
+        subjectId: ctx.deal.id,
+        businessIds,
+        summary: `${m.type} round ${String(m.round)}: ${m.note}`,
+        details: {
+          type: m.type,
+          round: m.round,
+          terms: m.terms === null ? null : termsToWire(m.terms),
+          ...(withChecks ? { policyChecks: m.checks } : {}),
+        },
+      });
+    if (m.checks.length === 0) {
+      await entry(ctx.businessIds, false);
+      return;
+    }
+    const sender = m.from === 'supplier' ? ctx.supplier.id : ctx.deal.clientId;
+    const receiver = m.from === 'supplier' ? ctx.deal.clientId : ctx.supplier.id;
+    await entry([sender], true);
+    await entry([receiver], false);
   }
 
+  /**
+   * The message text both sides read. `reason` is only ever what a person chose to say; an
+   * agent's reasons come from its side's policy and stay in that side's history (privateReason).
+   */
   private note(type: MessageType, terms: Terms | null, ctx: Ctx, reason?: string): string {
     const inv = `invoice ${ctx.deal.invoice.number}`;
-    if (terms === null) return reason === undefined ? `${type} on ${inv}` : `${reason}.`;
+    if (terms === null)
+      return reason === undefined ? `Declined the offer on ${inv}.` : `${reason}.`;
     const pay = formatMoney(paymentFor(terms.amountEarly, terms.discountBps));
     const what = `${pay} by ${terms.payBy} against ${formatMoney(terms.amountEarly)} of ${inv} (${bpsToPercent(terms.discountBps)}% off)`;
     const tail = reason === undefined || reason === '' ? '' : ` ${reason}.`;
@@ -327,7 +347,7 @@ export class NegotiationEngine {
             type: 'DECLINE',
             terms: null,
             round: deal.round,
-            note: this.note('DECLINE', null, ctx, move.reason),
+            note: this.note('DECLINE', null, ctx),
             checks: move.checks,
             expiresAt: null,
           });
@@ -336,8 +356,8 @@ export class NegotiationEngine {
               dealId,
               to: 'DECLINED',
               actor: 'CLIENT_AGENT',
-              reason: move.reason,
-              patch: { closedReason: move.reason },
+              reason: DECLINED,
+              privateReason: { side: 'CLIENT', reason: move.reason },
             },
             tx,
           );
@@ -350,7 +370,7 @@ export class NegotiationEngine {
           type: 'COUNTER',
           terms: move.terms,
           round,
-          note: this.note('COUNTER', move.terms, ctx, move.reason),
+          note: this.note('COUNTER', move.terms, ctx),
           checks: move.checks,
           expiresAt,
         });
@@ -359,7 +379,8 @@ export class NegotiationEngine {
             dealId,
             to: 'COUNTERED',
             actor: 'CLIENT_AGENT',
-            reason: move.reason,
+            reason: COUNTERED,
+            privateReason: { side: 'CLIENT', reason: move.reason },
             patch: { currentTerms: termsToWire(move.terms), round, expiresAt },
           },
           tx,
@@ -530,7 +551,7 @@ export class NegotiationEngine {
     ctx: Ctx,
     terms: Terms,
     actor: Actor,
-    reason: string,
+    privateReason: string,
     checks: readonly PolicyCheck[],
   ): Promise<Deal> {
     const round = ctx.deal.round + 1;
@@ -541,7 +562,7 @@ export class NegotiationEngine {
       type: 'COUNTER',
       terms,
       round,
-      note: this.note('COUNTER', terms, ctx, reason),
+      note: this.note('COUNTER', terms, ctx),
       checks,
       expiresAt,
     });
@@ -550,7 +571,8 @@ export class NegotiationEngine {
         dealId: ctx.deal.id,
         to: 'SENT',
         actor,
-        reason,
+        reason: COUNTERED,
+        privateReason: { side: 'SUPPLIER', reason: privateReason },
         patch: { currentTerms: termsToWire(terms), round, expiresAt },
       },
       tx,
@@ -561,7 +583,7 @@ export class NegotiationEngine {
     tx: DbOrTx,
     ctx: Ctx,
     actor: Actor,
-    reason: string,
+    privateReason: string,
     checks: readonly PolicyCheck[],
   ): Promise<Deal> {
     await this.message(tx, ctx, {
@@ -570,12 +592,18 @@ export class NegotiationEngine {
       type: 'DECLINE',
       terms: null,
       round: ctx.deal.round,
-      note: this.note('DECLINE', null, ctx, reason),
+      note: this.note('DECLINE', null, ctx),
       checks,
       expiresAt: null,
     });
     return this.deals.transition(
-      { dealId: ctx.deal.id, to: 'DECLINED', actor, reason, patch: { closedReason: reason } },
+      {
+        dealId: ctx.deal.id,
+        to: 'DECLINED',
+        actor,
+        reason: DECLINED,
+        privateReason: { side: 'SUPPLIER', reason: privateReason },
+      },
       tx,
     );
   }
@@ -590,7 +618,13 @@ export class NegotiationEngine {
     const after =
       ctx.supplierView.otherRowsCost + discountOn(move.terms.amountEarly, move.terms.discountBps);
     const deal2 = await this.deals.transition(
-      { dealId: deal.id, to: 'NEEDS_OWNER', actor: 'SUPPLIER_AGENT', reason: move.reason },
+      {
+        dealId: deal.id,
+        to: 'NEEDS_OWNER',
+        actor: 'SUPPLIER_AGENT',
+        reason: WAITING_FOR_SUPPLIER,
+        privateReason: { side: 'SUPPLIER', reason: move.reason },
+      },
       tx,
     );
     await this.approvals.request(tx, {
@@ -599,7 +633,9 @@ export class NegotiationEngine {
       subjectId: deal.id,
       requestedFrom: 'OWNER',
       businessId: ctx.supplier.id,
-      visibleTo: [deal.clientId],
+      // The owner's ceiling is the owner's business: the client sees only that the supplier is
+      // deciding (the NEEDS_OWNER transition's public reason).
+      visibleTo: [],
       title: `${move.onApproval === 'COUNTER' ? 'Counter' : 'Accept'} ${deal.client.name} at ${bpsToPercent(move.terms.discountBps)}%`,
       summary: `${move.reason}.`,
       planId: deal.planId,
@@ -708,7 +744,9 @@ export class NegotiationEngine {
         subjectId: deal.id,
         requestedFrom: 'CLIENT_HUMAN',
         businessId: deal.clientId,
-        visibleTo: [ctx.supplier.id],
+        // The auto-pay limit is the client's business: the supplier is told only that a person
+        // at the client has to approve.
+        visibleTo: [],
         title: `Approve ${formatMoney(payment)} to ${ctx.supplier.name}`,
         summary: `${formatMoney(payment)} is above your ${formatMoney(limit)} auto-pay limit: invoice ${deal.invoice.number}, ${bpsToPercent(terms.discountBps)}% off ${formatMoney(terms.amountEarly)}.`,
         dealId: deal.id,
@@ -716,6 +754,14 @@ export class NegotiationEngine {
         paymentAmountCents: payment,
         expiresAt: new Date(`${addDays(terms.payBy, 1)}T00:00:00Z`),
         actor: 'CLIENT_AGENT',
+      });
+      await this.audit.write(tx, {
+        actor: 'CLIENT_AGENT',
+        action: 'APPROVAL_REQUESTED',
+        subjectType: 'DEAL',
+        subjectId: deal.id,
+        businessIds: [ctx.supplier.id],
+        summary: `Waiting for a person at ${deal.client.name} to approve the payment`,
       });
     }
     return agreed;

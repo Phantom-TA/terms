@@ -148,6 +148,55 @@ describe('NegotiationEngine on the CONTEXT.md demo (Postgres)', () => {
     // Both businesses see the negotiation in their audit trail.
     const harborTrail = await audit.list(db, ids.harbor, { limit: 50, dealId: demo.harbor });
     expect(harborTrail.entries.filter((e) => e.action === 'NEGOTIATION_MESSAGE')).toHaveLength(4);
+    const mayaTrail = await audit.list(db, ids.maya, { limit: 50, dealId: demo.harbor });
+    expect(mayaTrail.entries.filter((e) => e.action === 'NEGOTIATION_MESSAGE')).toHaveLength(4);
+
+    // But each side's policy is its own (CR-4). Messages read the same to both and give no reasons.
+    for (const m of transcript) {
+      expect(m.note).not.toMatch(/ceiling|target|maximum|owner|cap|buffer/i);
+    }
+    // Harbor sees its own counter's reason and the policy checks on its own messages only; it
+    // never sees Maya's ceiling, her approval, or the checks behind her messages.
+    const harborText = JSON.stringify(harborTrail.entries);
+    expect(harborText).not.toMatch(/ceiling|COUNTER_OVER_PLAN|Counter Harbor/);
+    expect(harborTrail.entries.map((e) => e.summary)).toEqual(
+      expect.arrayContaining([
+        'SENT → COUNTERED: 1.50% reaches our 23.00% target',
+        'COUNTERED → NEEDS_OWNER: Waiting for the supplier',
+        'NEEDS_OWNER → SENT: Countered',
+      ]),
+    );
+    const checksFor = (entries: typeof harborTrail.entries, type: string, round: number) =>
+      entries.find(
+        (e) =>
+          e.action === 'NEGOTIATION_MESSAGE' &&
+          e.details['type'] === type &&
+          e.details['round'] === round,
+      )?.details['policyChecks'];
+    expect(checksFor(harborTrail.entries, 'COUNTER', 2)).toEqual(expect.any(Array));
+    expect(checksFor(harborTrail.entries, 'OFFER', 1)).toBeUndefined();
+    expect(checksFor(harborTrail.entries, 'COUNTER', 3)).toBeUndefined();
+    // Maya sees her own reasons and checks, never Harbor's target or the checks behind its moves.
+    expect(JSON.stringify(mayaTrail.entries)).not.toMatch(/target/);
+    expect(mayaTrail.entries.map((e) => e.summary)).toEqual(
+      expect.arrayContaining([
+        'SENT → COUNTERED: Countered',
+        'COUNTERED → NEEDS_OWNER: A counter at 1.20% costs $1.00 over the $60.00 ceiling',
+        'NEEDS_OWNER → SENT: Approved by the owner over the plan ceiling',
+      ]),
+    );
+    expect(checksFor(mayaTrail.entries, 'OFFER', 1)).toEqual(expect.any(Array));
+    expect(checksFor(mayaTrail.entries, 'COUNTER', 2)).toBeUndefined();
+
+    // Juniper's auto-pay limit is Juniper's: Maya is told only that a person has to approve.
+    const mayaOnJuniper = await audit.list(db, ids.maya, { limit: 50, dealId: demo.juniper });
+    expect(mayaOnJuniper.entries.map((e) => e.summary)).toContain(
+      'Waiting for a person at Juniper Labs to approve the payment',
+    );
+    expect(JSON.stringify(mayaOnJuniper.entries)).not.toMatch(/auto-pay|3,000/);
+    const juniperTrail = await audit.list(db, ids.juniper, { limit: 50, dealId: demo.juniper });
+    expect(JSON.stringify(juniperTrail.entries)).toMatch(/auto-pay/);
+    expect(JSON.stringify(juniperTrail.entries)).not.toMatch(/Waiting for a person/);
   });
 
   it('declines when the owner says no to going over the plan', async () => {
@@ -164,9 +213,16 @@ describe('NegotiationEngine on the CONTEXT.md demo (Postgres)', () => {
       actor: 'OWNER',
     });
     const deal = await deals.get(db, demo.harbor);
-    expect(deal).toMatchObject({
-      state: 'DECLINED',
-      closedReason: 'The owner declined to go over the plan',
+    // The client reads a plain decline; the owner's own history keeps why.
+    expect(deal).toMatchObject({ state: 'DECLINED', closedReason: 'Declined' });
+    const last = await db.dealTransition.findFirstOrThrow({
+      where: { dealId: demo.harbor, toState: 'DECLINED' },
+    });
+    expect(last).toMatchObject({
+      actor: 'OWNER',
+      reason: 'Declined',
+      privateReason: 'The owner declined to go over the plan',
+      privateTo: 'SUPPLIER',
     });
   });
 
@@ -331,10 +387,15 @@ describe('NegotiationEngine edges', () => {
     const { engine } = engineWith();
     const demo = await approvedDemoPlan();
     const deal = await engine.runAgents(demo.juniper);
-    expect(deal).toMatchObject({
-      state: 'DECLINED',
-      closedReason: 'This supplier is never paid early',
-    });
+    expect(deal).toMatchObject({ state: 'DECLINED', closedReason: 'Declined' });
+    // Juniper's rule about this supplier is Juniper's: only its own trail says so.
+    const trail = await audit.list(db, ids.juniper, { limit: 50, dealId: demo.juniper });
+    const mayaTrail = await audit.list(db, ids.maya, { limit: 50, dealId: demo.juniper });
+    expect(trail.entries.map((e) => e.summary)).toContain(
+      'SENT → DECLINED: This supplier is never paid early',
+    );
+    expect(mayaTrail.entries.map((e) => e.summary)).toContain('SENT → DECLINED: Declined');
+    expect(JSON.stringify(mayaTrail.entries)).not.toContain('never paid early');
   });
 
   it('refuses a plan offer that no longer passes policy', async () => {

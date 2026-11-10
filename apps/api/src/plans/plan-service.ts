@@ -426,7 +426,12 @@ export class PlanService {
               dealId: deal.id,
               to: 'APPROVED',
               actor: 'OWNER',
-              reason: `Approved in plan with a ${formatMoney(costCeiling)} ceiling`,
+              // The ceiling is the owner's business; the client reads a plain approval.
+              reason: 'Approved',
+              privateReason: {
+                side: 'SUPPLIER',
+                reason: `Approved in plan with a ${formatMoney(costCeiling)} ceiling`,
+              },
             },
             tx,
           );
