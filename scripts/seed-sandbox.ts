@@ -9,6 +9,8 @@
  *   pnpm seed --cancel-stray          also cancels open invoices the seed did not create
  *   pnpm seed --cancel-stray --settle-stray
  *                                     and closes partly paid leftovers by recording what is due
+ *   pnpm seed --reset --suffix S --scale
+ *                                     the scale shot: 30 invoices across 12 clients
  *   pnpm seed --harbor-token <id>     registers Harbor & Co's saved PayPal method (from a vault setup)
  */
 import { parseArgs } from 'node:util';
@@ -28,6 +30,7 @@ const { values } = parseArgs({
     reset: { type: 'boolean', default: false },
     'cancel-stray': { type: 'boolean', default: false },
     'settle-stray': { type: 'boolean', default: false },
+    scale: { type: 'boolean', default: false },
     suffix: { type: 'string' },
     'harbor-token': { type: 'string' },
   },
@@ -46,6 +49,7 @@ try {
     reset: values.reset,
     cancelStray: values['cancel-stray'],
     settleStray: values['settle-stray'],
+    scale: values.scale,
     ...(values.suffix === undefined ? {} : { suffix: values.suffix }),
     ...(values['harbor-token'] === undefined ? {} : { harborPaymentToken: values['harbor-token'] }),
   });

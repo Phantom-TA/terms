@@ -1,6 +1,11 @@
 import { dollars } from '@terms/shared';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { DEMO_INVOICES, DemoSeed } from '../../src/seed/demo-seed.js';
+import {
+  DEMO_INVOICES,
+  DemoSeed,
+  SCALE_CLIENTS,
+  SCALE_INVOICES,
+} from '../../src/seed/demo-seed.js';
 import { testApp } from '../helpers/app.js';
 import { createTestDb, resetDb } from '../helpers/db.js';
 import { jsonResponse, paypalError, stubFetch, tokenResponse } from '../helpers/fake-fetch.js';
@@ -267,5 +272,34 @@ describe('demo seed (fake sandbox)', () => {
     expect(report.settled).toEqual([]);
     expect(report.skipped).toEqual([{ paypalInvoiceId: 'INV2-SPIKE-PART', reason: 'partly paid' }]);
     expect(sandbox.payments).toHaveLength(0);
+  });
+
+  it('seeds the scale shot: 30 invoices across 12 clients, each new client with an agent', async () => {
+    const sandbox = fakeSandbox();
+    const { seed } = seeder(sandbox.stub.fetch);
+    const report = await seed.run({ now, scale: true });
+    expect(report.invoices).toHaveLength(30);
+    expect(new Set(SCALE_INVOICES.map((i) => i.slug)).size).toBe(7);
+    expect(SCALE_INVOICES.every((i) => i.amount >= 600 && i.dueIn >= 8)).toBe(true);
+
+    const open = await db.invoice.findMany({ where: { isDemo: true }, include: { client: true } });
+    expect(open).toHaveLength(30);
+    expect(new Set(open.map((i) => i.clientId)).size).toBe(12);
+    // Every scale invoice was matched to its client by email, and every scale client negotiates.
+    const scale = await db.business.findMany({
+      where: { slug: { in: SCALE_CLIENTS.map((c) => c.slug) } },
+      include: { clientPolicy: true },
+    });
+    expect(scale).toHaveLength(7);
+    expect(scale.every((b) => b.hasAgent && b.isDemo && b.clientPolicy !== null)).toBe(true);
+    expect(open.filter((i) => i.number.startsWith('20')).every((i) => i.client.hasAgent)).toBe(
+      true,
+    );
+
+    // Without the option nothing extra is created.
+    const plain = fakeSandbox();
+    await resetDb(db);
+    const { seed: again } = seeder(plain.stub.fetch);
+    expect((await again.run({ now })).invoices).toHaveLength(5);
   });
 });

@@ -54,6 +54,81 @@ interface InvoiceSpec {
   item: string;
 }
 
+const CLIENT_NAMES: Record<InvoiceSpec['client'], string> = {
+  oak: 'Oak Street Bakery',
+  pinecrest: 'Pinecrest Dental',
+  juniper: 'Juniper Labs',
+  birch: 'Birch Legal',
+  harbor: 'Harbor & Co',
+};
+
+/**
+ * The scale shot (CONTEXT.md, demo video 2:10): seven more clients, each with its own agent and
+ * policy, so the demo has 30 invoices across 12 clients negotiating at once. Only with `scale`.
+ */
+export const SCALE_CLIENTS = [
+  {
+    slug: 'cedar-row',
+    name: 'Cedar Row Architects',
+    hurdleBps: 1100,
+    targetBps: 1900,
+    autoPay: 4000,
+  },
+  { slug: 'lumen-optics', name: 'Lumen Optics', hurdleBps: 1400, targetBps: 2200, autoPay: 2500 },
+  {
+    slug: 'fennel-thyme',
+    name: 'Fennel & Thyme Catering',
+    hurdleBps: 1000,
+    targetBps: 1800,
+    autoPay: 1500,
+  },
+  {
+    slug: 'northgate',
+    name: 'Northgate Logistics',
+    hurdleBps: 1600,
+    targetBps: 2500,
+    autoPay: 6000,
+  },
+  { slug: 'saltwater', name: 'Saltwater Surf Co', hurdleBps: 1200, targetBps: 2000, autoPay: 2000 },
+  {
+    slug: 'quarry-hill',
+    name: 'Quarry Hill Builders',
+    hurdleBps: 1300,
+    targetBps: 2100,
+    autoPay: 5000,
+  },
+  {
+    slug: 'maple-ledger',
+    name: 'Maple Ledger Accounting',
+    hurdleBps: 1500,
+    targetBps: 2400,
+    autoPay: 3000,
+  },
+] as const;
+
+const SCALE_ITEMS = [
+  'Monthly design retainer',
+  'Campaign assets',
+  'Website updates',
+  'Print collateral',
+  'Social media kit',
+];
+
+/** 25 invoices across the seven scale clients, numbered 2001-2025, varied in size and due date. */
+export const SCALE_INVOICES = Array.from({ length: 25 }, (_, i) => {
+  const client = SCALE_CLIENTS[i % SCALE_CLIENTS.length] ?? SCALE_CLIENTS[0];
+  return {
+    number: String(2001 + i),
+    slug: client.slug,
+    name: client.name,
+    amount: 600 + ((i * 37) % 20) * 175,
+    dueIn: 8 + ((i * 7) % 30),
+    item: SCALE_ITEMS[i % SCALE_ITEMS.length] ?? 'Design work',
+  };
+});
+
+const scaleEmail = (slug: string) => `${slug}@terms-demo.example.com`;
+
 /** The scenario's five invoices (CONTEXT.md, "Starting position"). */
 export const DEMO_INVOICES: readonly InvoiceSpec[] = [
   { number: '1038', client: 'oak', amount: 1800, dueIn: -6, item: 'Menu and window graphics' },
@@ -69,6 +144,8 @@ export interface SeedOptions {
   suffix?: string;
   reset?: boolean;
   cancelStray?: boolean;
+  /** Also seed the scale shot: 25 more invoices across seven more clients with agents. */
+  scale?: boolean;
   /** With cancelStray: close partly paid leftovers by recording what is due (sandbox only). */
   settleStray?: boolean;
   /** Register Harbor's saved PayPal method (a payment token from the vault setup). */
@@ -196,6 +273,39 @@ export class DemoSeed {
     });
   }
 
+  /** The scale shot's clients: demo businesses with agents and their own policies. */
+  private async upsertScaleClients(): Promise<void> {
+    for (const c of SCALE_CLIENTS) {
+      const business = {
+        name: c.name,
+        role: 'CLIENT' as const,
+        hasAgent: true,
+        paypalEmail: scaleEmail(c.slug),
+        isDemo: true,
+        timeZone: DEMO_TIME_ZONE,
+      };
+      const row = await this.db.business.upsert({
+        where: { slug: c.slug },
+        create: { slug: c.slug, ...business },
+        update: business,
+      });
+      const policy = {
+        hurdleBps: c.hurdleBps,
+        targetBps: c.targetBps,
+        cashBufferCents: dollars(15000),
+        autoPayLimitCents: dollars(c.autoPay),
+        earlyPayCapCents: null,
+        neverPayEarly: [],
+        cashOnHandCents: dollars(70000),
+      };
+      await this.db.clientPolicy.upsert({
+        where: { businessId: row.id },
+        create: { businessId: row.id, ...policy },
+        update: policy,
+      });
+    }
+  }
+
   /** Open invoices in Maya's PayPal account (every page, capped), with their status. */
   private async openPayPalInvoices(): Promise<Map<string, string>> {
     const open = new Map<string, string>();
@@ -313,18 +423,11 @@ export class DemoSeed {
   }
 
   private async createAndSend(
-    spec: InvoiceSpec,
+    spec: Pick<InvoiceSpec, 'amount' | 'dueIn' | 'item'>,
     number: string,
-    accounts: DemoAccounts,
+    recipient: { email: string; name: string },
     today: string,
   ) {
-    const names: Record<InvoiceSpec['client'], string> = {
-      oak: 'Oak Street Bakery',
-      pinecrest: 'Pinecrest Dental',
-      juniper: 'Juniper Labs',
-      birch: 'Birch Legal',
-      harbor: 'Harbor & Co',
-    };
     const claim = await this.ledger.claim(this.db, {
       key: `invoice-create:${number}`,
       operation: 'invoicing.create',
@@ -350,8 +453,8 @@ export class DemoSeed {
             primary_recipients: [
               {
                 billing_info: {
-                  email_address: accounts[spec.client],
-                  business_name: names[spec.client],
+                  email_address: recipient.email,
+                  business_name: recipient.name,
                 },
               },
             ],
@@ -457,7 +560,17 @@ export class DemoSeed {
     for (const spec of DEMO_INVOICES) {
       const number =
         options.suffix === undefined ? spec.number : `${spec.number}-${options.suffix}`;
-      invoices.push(await this.createAndSend(spec, number, accounts, today));
+      const recipient = { email: accounts[spec.client], name: CLIENT_NAMES[spec.client] };
+      invoices.push(await this.createAndSend(spec, number, recipient, today));
+    }
+    if (options.scale === true) {
+      await this.upsertScaleClients();
+      for (const spec of SCALE_INVOICES) {
+        const number =
+          options.suffix === undefined ? spec.number : `${spec.number}-${options.suffix}`;
+        const recipient = { email: scaleEmail(spec.slug), name: spec.name };
+        invoices.push(await this.createAndSend(spec, number, recipient, today));
+      }
     }
 
     // Maya's payroll: the owner-confirmed recurring outflow the goal is about.
