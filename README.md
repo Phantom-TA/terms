@@ -108,6 +108,45 @@ states, works at laptop and tablet widths, and is tested with axe for accessibil
   Code.
 - **Render:** hosting.
 
+## Architecture
+
+One TypeScript monorepo: `packages/shared` (the typed contract: every request, response, the deal
+state machine and the policy checks), `apps/api` (Express and Prisma on Postgres: the planner, the
+negotiation engine, the AI roles and the PayPal integration) and `apps/web` (React with AG Grid,
+AG Charts and AG Studio). The API serves the built web app, so it deploys as one service. Money limits
+are enforced in code, every PayPal write happens exactly once, and a deal counts as paid only on
+PayPal's verified webhook. Details: [docs/architecture.md](docs/architecture.md).
+
+## Run it yourself
+
+Needs Node 24, pnpm 12 and a PayPal sandbox app (Invoicing, Vault, Transaction Search, Webhooks).
+
+```bash
+pnpm install
+cp .env.example .env        # then fill in PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET
+pnpm db:local               # a local Postgres (or: pnpm db:up with Docker); leave it running
+pnpm db:deploy              # apply the migrations
+pnpm seed                   # the demo, as real sandbox invoices, then imported
+pnpm --filter @terms/api dev    # API on http://localhost:3000
+pnpm --filter @terms/web dev    # web app on http://localhost:5173 (proxies /api)
+```
+
+- **AI (optional):** set `LLM_API_KEY` (Anthropic by default; `LLM_PROVIDER` can be `openai` or
+  `google`). Without it every AI role runs in its deterministic mode, and Cash Studio and written
+  offer replies say they are not set up. `AI_MODE=replay` plays recorded answers without a key.
+- **Webhooks locally:** expose the API with a tunnel (for example `cloudflared tunnel --url
+http://localhost:3000`), then `pnpm webhook:register https://<tunnel-host>` and set
+  `PAYPAL_WEBHOOK_ID`.
+- **Fresh demo run:** `pnpm seed --reset --suffix B`. The scale shot: `pnpm seed --reset --suffix S --scale`.
+- **Checks:** `pnpm typecheck`, `pnpm lint`, `pnpm test:coverage` (unit and integration tests on a real
+  Postgres), and the web app's browser tests in `apps/web`.
+
+## Deploy
+
+[`render.yaml`](render.yaml) is a Render Blueprint: one web service (API plus the built web app,
+migrations before each deploy, health check at `/api/health`) and one Postgres. Step by step, including
+the PayPal webhook and seeding: [docs/deploy.md](docs/deploy.md).
+
 ## Limitations
 
 - **Agent payments (spike S2, partial):** an agent paying from a saved PayPal method works in the
@@ -126,4 +165,4 @@ states, works at laptop and tablet widths, and is tested with axe for accessibil
 - [API contracts](docs/api.md), [PayPal](docs/paypal.md), [AI](docs/ai.md)
 - Running the web app on its own in demo mode: [apps/web/README.md](apps/web/README.md)
 
-Server, PayPal sandbox and deployment setup will be added here before submission.
+- [Architecture](docs/architecture.md), [Deploying on Render](docs/deploy.md)

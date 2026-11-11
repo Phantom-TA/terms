@@ -9,7 +9,9 @@
  *  - Then a real import (SyncService) mirrors them, with transactions and the balance.
  * `reset` withdraws the previous run: open demo invoices are cancelled in PayPal and Terms' demo
  * history is cleared. `cancelStray` also cancels open invoices this seed did not create (spike
- * leftovers) so the Workbench shows only the demo.
+ * leftovers) so the Workbench shows only the demo. PayPal will not cancel a partly paid invoice, so
+ * `settleStray` closes such a leftover by recording what is still due as an external payment, with a
+ * note saying it is test cleanup. It never touches the demo's own invoices.
  */
 import { randomUUID } from 'node:crypto';
 import { addDays, dollars, isoDateInTimeZone, nextWeekday } from '@terms/shared';
@@ -19,7 +21,7 @@ import { AppError } from '../errors.js';
 import { classify, toAppError } from '../paypal/errors.js';
 import { type SyncResult } from '../paypal/sync-service.js';
 import { type PayPalServices } from '../services.js';
-import { type WriteLedger } from '../paypal/write-ledger.js';
+import { sendClaimed, type WriteLedger } from '../paypal/write-ledger.js';
 import { isoToDate } from '../mappers.js';
 
 export const DEMO_TIME_ZONE = 'America/New_York';
@@ -52,6 +54,81 @@ interface InvoiceSpec {
   item: string;
 }
 
+const CLIENT_NAMES: Record<InvoiceSpec['client'], string> = {
+  oak: 'Oak Street Bakery',
+  pinecrest: 'Pinecrest Dental',
+  juniper: 'Juniper Labs',
+  birch: 'Birch Legal',
+  harbor: 'Harbor & Co',
+};
+
+/**
+ * The scale shot (CONTEXT.md, demo video 2:10): seven more clients, each with its own agent and
+ * policy, so the demo has 30 invoices across 12 clients negotiating at once. Only with `scale`.
+ */
+export const SCALE_CLIENTS = [
+  {
+    slug: 'cedar-row',
+    name: 'Cedar Row Architects',
+    hurdleBps: 1100,
+    targetBps: 1900,
+    autoPay: 4000,
+  },
+  { slug: 'lumen-optics', name: 'Lumen Optics', hurdleBps: 1400, targetBps: 2200, autoPay: 2500 },
+  {
+    slug: 'fennel-thyme',
+    name: 'Fennel & Thyme Catering',
+    hurdleBps: 1000,
+    targetBps: 1800,
+    autoPay: 1500,
+  },
+  {
+    slug: 'northgate',
+    name: 'Northgate Logistics',
+    hurdleBps: 1600,
+    targetBps: 2500,
+    autoPay: 6000,
+  },
+  { slug: 'saltwater', name: 'Saltwater Surf Co', hurdleBps: 1200, targetBps: 2000, autoPay: 2000 },
+  {
+    slug: 'quarry-hill',
+    name: 'Quarry Hill Builders',
+    hurdleBps: 1300,
+    targetBps: 2100,
+    autoPay: 5000,
+  },
+  {
+    slug: 'maple-ledger',
+    name: 'Maple Ledger Accounting',
+    hurdleBps: 1500,
+    targetBps: 2400,
+    autoPay: 3000,
+  },
+] as const;
+
+const SCALE_ITEMS = [
+  'Monthly design retainer',
+  'Campaign assets',
+  'Website updates',
+  'Print collateral',
+  'Social media kit',
+];
+
+/** 25 invoices across the seven scale clients, numbered 2001-2025, varied in size and due date. */
+export const SCALE_INVOICES = Array.from({ length: 25 }, (_, i) => {
+  const client = SCALE_CLIENTS[i % SCALE_CLIENTS.length] ?? SCALE_CLIENTS[0];
+  return {
+    number: String(2001 + i),
+    slug: client.slug,
+    name: client.name,
+    amount: 600 + ((i * 37) % 20) * 175,
+    dueIn: 8 + ((i * 7) % 30),
+    item: SCALE_ITEMS[i % SCALE_ITEMS.length] ?? 'Design work',
+  };
+});
+
+const scaleEmail = (slug: string) => `${slug}@terms-demo.example.com`;
+
 /** The scenario's five invoices (CONTEXT.md, "Starting position"). */
 export const DEMO_INVOICES: readonly InvoiceSpec[] = [
   { number: '1038', client: 'oak', amount: 1800, dueIn: -6, item: 'Menu and window graphics' },
@@ -67,6 +144,10 @@ export interface SeedOptions {
   suffix?: string;
   reset?: boolean;
   cancelStray?: boolean;
+  /** Also seed the scale shot: 25 more invoices across seven more clients with agents. */
+  scale?: boolean;
+  /** With cancelStray: close partly paid leftovers by recording what is due (sandbox only). */
+  settleStray?: boolean;
   /** Register Harbor's saved PayPal method (a payment token from the vault setup). */
   harborPaymentToken?: string;
   now?: () => Date;
@@ -78,6 +159,8 @@ export interface SeedReport {
   cancelled: string[];
   /** Open invoices the seed left alone, and why. */
   skipped: { paypalInvoiceId: string; reason: string }[];
+  /** Partly paid leftovers closed by recording what was still due. */
+  settled: string[];
   payrollDate: string;
   sync: SyncResult;
   harborVault: 'registered' | 'already saved' | 'not set';
@@ -190,6 +273,39 @@ export class DemoSeed {
     });
   }
 
+  /** The scale shot's clients: demo businesses with agents and their own policies. */
+  private async upsertScaleClients(): Promise<void> {
+    for (const c of SCALE_CLIENTS) {
+      const business = {
+        name: c.name,
+        role: 'CLIENT' as const,
+        hasAgent: true,
+        paypalEmail: scaleEmail(c.slug),
+        isDemo: true,
+        timeZone: DEMO_TIME_ZONE,
+      };
+      const row = await this.db.business.upsert({
+        where: { slug: c.slug },
+        create: { slug: c.slug, ...business },
+        update: business,
+      });
+      const policy = {
+        hurdleBps: c.hurdleBps,
+        targetBps: c.targetBps,
+        cashBufferCents: dollars(15000),
+        autoPayLimitCents: dollars(c.autoPay),
+        earlyPayCapCents: null,
+        neverPayEarly: [],
+        cashOnHandCents: dollars(70000),
+      };
+      await this.db.clientPolicy.upsert({
+        where: { businessId: row.id },
+        create: { businessId: row.id, ...policy },
+        update: policy,
+      });
+    }
+  }
+
   /** Open invoices in Maya's PayPal account (every page, capped), with their status. */
   private async openPayPalInvoices(): Promise<Map<string, string>> {
     const open = new Map<string, string>();
@@ -222,6 +338,52 @@ export class DemoSeed {
       },
       schema: z.unknown(),
     });
+  }
+
+  /**
+   * Closes a partly paid leftover by recording what is still due as an external payment. Claimed in
+   * the write ledger first, so a re-run never records it twice. Returns 'settled', or why not.
+   */
+  private async settleStray(paypalInvoiceId: string, today: string): Promise<string> {
+    const path = `/v2/invoicing/invoices/${encodeURIComponent(paypalInvoiceId)}`;
+    const claim = await this.ledger.claim(this.db, {
+      key: `invoice-settle-stray:${paypalInvoiceId}`,
+      operation: 'invoicing.recordPayment',
+    });
+    if (claim.kind === 'existing' && claim.write.status === 'SUCCEEDED') return 'settled';
+    const invoice = await this.paypal.rest.request({
+      method: 'GET',
+      path,
+      schema: z.looseObject({
+        due_amount: z.object({ currency_code: z.string(), value: z.string() }).optional(),
+      }),
+    });
+    const due = invoice.data.due_amount;
+    if (due === undefined || Number(due.value) <= 0) {
+      await this.ledger.release(this.db, claim.write.id);
+      return 'nothing due';
+    }
+    const sent = await sendClaimed(this.ledger, this.db, claim.write, () =>
+      this.paypal.rest.request({
+        method: 'POST',
+        path: `${path}/payments`,
+        requestId: claim.write.requestId,
+        body: {
+          method: 'OTHER',
+          payment_date: today,
+          amount: due,
+          note: 'Closed by the Terms demo seed: a test leftover from development, not a real payment',
+        },
+        schema: z.looseObject({ payment_id: z.string().optional() }),
+      }),
+    );
+    if (!sent.ok) {
+      if (sent.unknown || sent.failure.kind !== 'refused')
+        throw toAppError(sent.failure, 'invoice');
+      return `PayPal refused: ${sent.failure.reason ?? String(sent.failure.status)}`;
+    }
+    await this.ledger.succeed(this.db, claim.write.id, sent.value.data.payment_id ?? null);
+    return 'settled';
   }
 
   /** Clears Terms' demo history (keeps businesses, policies and saved PayPal methods). */
@@ -261,18 +423,11 @@ export class DemoSeed {
   }
 
   private async createAndSend(
-    spec: InvoiceSpec,
+    spec: Pick<InvoiceSpec, 'amount' | 'dueIn' | 'item'>,
     number: string,
-    accounts: DemoAccounts,
+    recipient: { email: string; name: string },
     today: string,
   ) {
-    const names: Record<InvoiceSpec['client'], string> = {
-      oak: 'Oak Street Bakery',
-      pinecrest: 'Pinecrest Dental',
-      juniper: 'Juniper Labs',
-      birch: 'Birch Legal',
-      harbor: 'Harbor & Co',
-    };
     const claim = await this.ledger.claim(this.db, {
       key: `invoice-create:${number}`,
       operation: 'invoicing.create',
@@ -298,8 +453,8 @@ export class DemoSeed {
             primary_recipients: [
               {
                 billing_info: {
-                  email_address: accounts[spec.client],
-                  business_name: names[spec.client],
+                  email_address: recipient.email,
+                  business_name: recipient.name,
                 },
               },
             ],
@@ -362,6 +517,7 @@ export class DemoSeed {
 
     const cancelled: string[] = [];
     const skipped: SeedReport['skipped'] = [];
+    const settled: string[] = [];
     if (options.reset === true || options.cancelStray === true) {
       const open = await this.openPayPalInvoices();
       const mirrored = await this.db.invoice.findMany({
@@ -372,9 +528,17 @@ export class DemoSeed {
           ? [...open.keys()]
           : mirrored.map((i) => i.paypalInvoiceId).filter((id) => open.has(id));
       for (const id of targets) {
-        // A partly paid invoice has money on it: it is left alone, never cancelled.
+        // A partly paid invoice has money on it: PayPal will not cancel it. A stray one may be
+        // closed by recording what is still due; a demo one is always left alone.
         if (open.get(id) === 'PARTIALLY_PAID') {
-          skipped.push({ paypalInvoiceId: id, reason: 'partly paid' });
+          const demo = mirrored.some((i) => i.paypalInvoiceId === id);
+          if (options.settleStray === true && !demo) {
+            const outcome = await this.settleStray(id, today);
+            if (outcome === 'settled') settled.push(id);
+            else skipped.push({ paypalInvoiceId: id, reason: outcome });
+          } else {
+            skipped.push({ paypalInvoiceId: id, reason: 'partly paid' });
+          }
           continue;
         }
         try {
@@ -396,7 +560,17 @@ export class DemoSeed {
     for (const spec of DEMO_INVOICES) {
       const number =
         options.suffix === undefined ? spec.number : `${spec.number}-${options.suffix}`;
-      invoices.push(await this.createAndSend(spec, number, accounts, today));
+      const recipient = { email: accounts[spec.client], name: CLIENT_NAMES[spec.client] };
+      invoices.push(await this.createAndSend(spec, number, recipient, today));
+    }
+    if (options.scale === true) {
+      await this.upsertScaleClients();
+      for (const spec of SCALE_INVOICES) {
+        const number =
+          options.suffix === undefined ? spec.number : `${spec.number}-${options.suffix}`;
+        const recipient = { email: scaleEmail(spec.slug), name: spec.name };
+        invoices.push(await this.createAndSend(spec, number, recipient, today));
+      }
     }
 
     // Maya's payroll: the owner-confirmed recurring outflow the goal is about.
@@ -450,6 +624,6 @@ export class DemoSeed {
       },
       data: { isDemo: false },
     });
-    return { businesses, invoices, cancelled, skipped, payrollDate, sync, harborVault };
+    return { businesses, invoices, cancelled, skipped, settled, payrollDate, sync, harborVault };
   }
 }
