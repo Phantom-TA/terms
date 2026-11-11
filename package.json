@@ -10,6 +10,9 @@
   },
   "scripts": {
     "build": "pnpm db:generate && pnpm -r --filter ./packages/** run build",
+    "build:prod": "pnpm db:generate && pnpm --filter @terms/shared build && pnpm --filter @terms/api build && pnpm --filter @terms/web build",
+    "start": "node apps/api/dist/server.js",
+    "webhook:register": "pnpm spike ../../scripts/register-webhook.ts",
     "typecheck": "pnpm -r run typecheck && tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",

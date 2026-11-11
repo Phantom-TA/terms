@@ -91,6 +91,15 @@ Merged to `develop` in PR #1 and tagged `contracts-v1`.
 | Demo seed: businesses, policies, payroll flow, real sandbox invoices created and sent, real import | PASS (fake sandbox) | `apps/api/test/seed/demo-seed.test.ts`; `pnpm seed`          |
 | Seed run against the real sandbox                                                                  | Not run yet         | Waits for the owner's go-ahead on cancelling spike leftovers |
 
+## Phase 8: deployment
+
+| Feature                                                          | Status  | Evidence                                                                                                                       |
+| ---------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| One-command production build and start (`build:prod`, `start`)   | PASS    | Built and started locally with `NODE_ENV=production`: health `database: ok`, SPA served for `/`, `/offer/:token`, vault return |
+| `render.yaml` (web service + Postgres, migrations, health check) | PARTIAL | Written; not yet deployed (needs the Render account)                                                                           |
+| PayPal webhook registration for the hosted URL                   | PARTIAL | `pnpm webhook:register <url>` (idempotent); run after the first deploy                                                         |
+| Deploy guide                                                     | PASS    | `docs/deploy.md`                                                                                                               |
+
 ## Contract requests from Developer B
 
 | Request                                              | Status | Evidence                                                                                                  |
