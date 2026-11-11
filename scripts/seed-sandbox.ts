@@ -7,6 +7,8 @@
  *   pnpm seed --reset --suffix B      a fresh run: cancels the previous run's open invoices,
  *                                     clears the demo history, and numbers invoices 1041-B …
  *   pnpm seed --cancel-stray          also cancels open invoices the seed did not create
+ *   pnpm seed --cancel-stray --settle-stray
+ *                                     and closes partly paid leftovers by recording what is due
  *   pnpm seed --harbor-token <id>     registers Harbor & Co's saved PayPal method (from a vault setup)
  */
 import { parseArgs } from 'node:util';
@@ -25,6 +27,7 @@ const { values } = parseArgs({
   options: {
     reset: { type: 'boolean', default: false },
     'cancel-stray': { type: 'boolean', default: false },
+    'settle-stray': { type: 'boolean', default: false },
     suffix: { type: 'string' },
     'harbor-token': { type: 'string' },
   },
@@ -42,6 +45,7 @@ try {
   const report = await new DemoSeed(db, services.paypal, services.ledger).run({
     reset: values.reset,
     cancelStray: values['cancel-stray'],
+    settleStray: values['settle-stray'],
     ...(values.suffix === undefined ? {} : { suffix: values.suffix }),
     ...(values['harbor-token'] === undefined ? {} : { harborPaymentToken: values['harbor-token'] }),
   });
@@ -49,6 +53,8 @@ try {
   if (report.cancelled.length > 0)
     console.log(`  cancelled ${String(report.cancelled.length)} open invoices`);
   for (const k of report.skipped) console.log(`  left open: ${k.paypalInvoiceId} (${k.reason})`);
+  for (const id of report.settled)
+    console.log(`  closed partly paid leftover: ${id} (remaining amount recorded as paid)`);
   for (const i of report.invoices) {
     console.log(
       `  invoice ${i.number}: ${i.paypalInvoiceId}${i.created ? ' (created)' : ''}${i.sent ? ', sent' : ''}`,

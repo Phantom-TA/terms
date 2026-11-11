@@ -20,6 +20,7 @@ afterAll(async () => {
 /** A fake PayPal account that keeps the invoices it is asked to create, like the sandbox does. */
 function fakeSandbox(options: { duplicateNumbers?: boolean; stray?: string[] } = {}) {
   const invoices = new Map<string, Record<string, unknown>>();
+  const payments: { id: string; body: unknown }[] = [];
   for (const entry of options.stray ?? []) {
     const [id = entry, status = 'SENT'] = entry.split(':');
     invoices.set(id, {
@@ -27,6 +28,7 @@ function fakeSandbox(options: { duplicateNumbers?: boolean; stray?: string[] } =
       status,
       detail: { invoice_number: id },
       amount: { currency_code: 'USD', value: '10.00' },
+      due_amount: { currency_code: 'USD', value: status === 'PARTIALLY_PAID' ? '4.00' : '10.00' },
       primary_recipients: [],
     });
   }
@@ -66,6 +68,12 @@ function fakeSandbox(options: { duplicateNumbers?: boolean; stray?: string[] } =
       invoices.get(send[1]!)!['status'] = 'SENT';
       return new Response(null, { status: 202 });
     }
+    const pay = /^\/v2\/invoicing\/invoices\/([^/]+)\/payments$/.exec(path);
+    if (pay !== null) {
+      payments.push({ id: pay[1]!, body: JSON.parse(await request.text()) as unknown });
+      invoices.get(pay[1]!)!['status'] = 'PAID';
+      return jsonResponse(200, { payment_id: `PAY-${pay[1]!}` });
+    }
     const cancel = /^\/v2\/invoicing\/invoices\/([^/]+)\/cancel$/.exec(path);
     if (cancel?.[1] === 'INV2-SPIKE-LOCKED') {
       return jsonResponse(422, paypalError('CANNOT_CANCEL', 'Invoice cannot be cancelled'));
@@ -98,7 +106,7 @@ function fakeSandbox(options: { duplicateNumbers?: boolean; stray?: string[] } =
     }
     throw new Error(`unexpected ${request.method} ${path}`);
   });
-  return { stub, invoices };
+  return { stub, invoices, payments };
 }
 
 function seeder(fetch: typeof globalThis.fetch) {
@@ -225,5 +233,39 @@ describe('demo seed (fake sandbox)', () => {
     await expect(seed.run({ now })).rejects.toThrow(
       'Invoice 1038: Invoice number is a duplicate (use --suffix for a new run)',
     );
+  });
+
+  it('closes a partly paid leftover by recording what is due, once, and never a demo invoice', async () => {
+    const sandbox = fakeSandbox({ stray: ['INV2-SPIKE-PART:PARTIALLY_PAID'] });
+    const { seed } = seeder(sandbox.stub.fetch);
+    await seed.run({ now });
+    const report = await seed.run({ now, cancelStray: true, settleStray: true });
+    expect(report.settled).toEqual(['INV2-SPIKE-PART']);
+    expect(report.skipped).toEqual([]);
+    expect(sandbox.payments).toHaveLength(1);
+    expect(sandbox.payments[0]).toMatchObject({
+      id: 'INV2-SPIKE-PART',
+      body: {
+        method: 'OTHER',
+        payment_date: '2026-11-09',
+        amount: { currency_code: 'USD', value: '4.00' },
+        note: expect.stringContaining('test leftover') as unknown,
+      },
+    });
+    expect(sandbox.invoices.get('INV2-SPIKE-PART')?.['status']).toBe('PAID');
+
+    // Running again records nothing twice (the invoice is no longer open, and the write is claimed).
+    const again = await seed.run({ now, cancelStray: true, settleStray: true });
+    expect(again.settled).toEqual([]);
+    expect(sandbox.payments).toHaveLength(1);
+  });
+
+  it('leaves partly paid leftovers alone unless asked', async () => {
+    const sandbox = fakeSandbox({ stray: ['INV2-SPIKE-PART:PARTIALLY_PAID'] });
+    const { seed } = seeder(sandbox.stub.fetch);
+    const report = await seed.run({ now, cancelStray: true });
+    expect(report.settled).toEqual([]);
+    expect(report.skipped).toEqual([{ paypalInvoiceId: 'INV2-SPIKE-PART', reason: 'partly paid' }]);
+    expect(sandbox.payments).toHaveLength(0);
   });
 });

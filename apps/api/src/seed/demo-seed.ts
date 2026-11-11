@@ -9,7 +9,9 @@
  *  - Then a real import (SyncService) mirrors them, with transactions and the balance.
  * `reset` withdraws the previous run: open demo invoices are cancelled in PayPal and Terms' demo
  * history is cleared. `cancelStray` also cancels open invoices this seed did not create (spike
- * leftovers) so the Workbench shows only the demo.
+ * leftovers) so the Workbench shows only the demo. PayPal will not cancel a partly paid invoice, so
+ * `settleStray` closes such a leftover by recording what is still due as an external payment, with a
+ * note saying it is test cleanup. It never touches the demo's own invoices.
  */
 import { randomUUID } from 'node:crypto';
 import { addDays, dollars, isoDateInTimeZone, nextWeekday } from '@terms/shared';
@@ -19,7 +21,7 @@ import { AppError } from '../errors.js';
 import { classify, toAppError } from '../paypal/errors.js';
 import { type SyncResult } from '../paypal/sync-service.js';
 import { type PayPalServices } from '../services.js';
-import { type WriteLedger } from '../paypal/write-ledger.js';
+import { sendClaimed, type WriteLedger } from '../paypal/write-ledger.js';
 import { isoToDate } from '../mappers.js';
 
 export const DEMO_TIME_ZONE = 'America/New_York';
@@ -67,6 +69,8 @@ export interface SeedOptions {
   suffix?: string;
   reset?: boolean;
   cancelStray?: boolean;
+  /** With cancelStray: close partly paid leftovers by recording what is due (sandbox only). */
+  settleStray?: boolean;
   /** Register Harbor's saved PayPal method (a payment token from the vault setup). */
   harborPaymentToken?: string;
   now?: () => Date;
@@ -78,6 +82,8 @@ export interface SeedReport {
   cancelled: string[];
   /** Open invoices the seed left alone, and why. */
   skipped: { paypalInvoiceId: string; reason: string }[];
+  /** Partly paid leftovers closed by recording what was still due. */
+  settled: string[];
   payrollDate: string;
   sync: SyncResult;
   harborVault: 'registered' | 'already saved' | 'not set';
@@ -224,6 +230,52 @@ export class DemoSeed {
     });
   }
 
+  /**
+   * Closes a partly paid leftover by recording what is still due as an external payment. Claimed in
+   * the write ledger first, so a re-run never records it twice. Returns 'settled', or why not.
+   */
+  private async settleStray(paypalInvoiceId: string, today: string): Promise<string> {
+    const path = `/v2/invoicing/invoices/${encodeURIComponent(paypalInvoiceId)}`;
+    const claim = await this.ledger.claim(this.db, {
+      key: `invoice-settle-stray:${paypalInvoiceId}`,
+      operation: 'invoicing.recordPayment',
+    });
+    if (claim.kind === 'existing' && claim.write.status === 'SUCCEEDED') return 'settled';
+    const invoice = await this.paypal.rest.request({
+      method: 'GET',
+      path,
+      schema: z.looseObject({
+        due_amount: z.object({ currency_code: z.string(), value: z.string() }).optional(),
+      }),
+    });
+    const due = invoice.data.due_amount;
+    if (due === undefined || Number(due.value) <= 0) {
+      await this.ledger.release(this.db, claim.write.id);
+      return 'nothing due';
+    }
+    const sent = await sendClaimed(this.ledger, this.db, claim.write, () =>
+      this.paypal.rest.request({
+        method: 'POST',
+        path: `${path}/payments`,
+        requestId: claim.write.requestId,
+        body: {
+          method: 'OTHER',
+          payment_date: today,
+          amount: due,
+          note: 'Closed by the Terms demo seed: a test leftover from development, not a real payment',
+        },
+        schema: z.looseObject({ payment_id: z.string().optional() }),
+      }),
+    );
+    if (!sent.ok) {
+      if (sent.unknown || sent.failure.kind !== 'refused')
+        throw toAppError(sent.failure, 'invoice');
+      return `PayPal refused: ${sent.failure.reason ?? String(sent.failure.status)}`;
+    }
+    await this.ledger.succeed(this.db, claim.write.id, sent.value.data.payment_id ?? null);
+    return 'settled';
+  }
+
   /** Clears Terms' demo history (keeps businesses, policies and saved PayPal methods). */
   private async clearHistory(supplierId: string): Promise<void> {
     const plans = await this.db.plan.findMany({
@@ -362,6 +414,7 @@ export class DemoSeed {
 
     const cancelled: string[] = [];
     const skipped: SeedReport['skipped'] = [];
+    const settled: string[] = [];
     if (options.reset === true || options.cancelStray === true) {
       const open = await this.openPayPalInvoices();
       const mirrored = await this.db.invoice.findMany({
@@ -372,9 +425,17 @@ export class DemoSeed {
           ? [...open.keys()]
           : mirrored.map((i) => i.paypalInvoiceId).filter((id) => open.has(id));
       for (const id of targets) {
-        // A partly paid invoice has money on it: it is left alone, never cancelled.
+        // A partly paid invoice has money on it: PayPal will not cancel it. A stray one may be
+        // closed by recording what is still due; a demo one is always left alone.
         if (open.get(id) === 'PARTIALLY_PAID') {
-          skipped.push({ paypalInvoiceId: id, reason: 'partly paid' });
+          const demo = mirrored.some((i) => i.paypalInvoiceId === id);
+          if (options.settleStray === true && !demo) {
+            const outcome = await this.settleStray(id, today);
+            if (outcome === 'settled') settled.push(id);
+            else skipped.push({ paypalInvoiceId: id, reason: outcome });
+          } else {
+            skipped.push({ paypalInvoiceId: id, reason: 'partly paid' });
+          }
           continue;
         }
         try {
@@ -450,6 +511,6 @@ export class DemoSeed {
       },
       data: { isDemo: false },
     });
-    return { businesses, invoices, cancelled, skipped, payrollDate, sync, harborVault };
+    return { businesses, invoices, cancelled, skipped, settled, payrollDate, sync, harborVault };
   }
 }
