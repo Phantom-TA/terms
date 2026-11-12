@@ -114,7 +114,12 @@ It also shows that a reckless, sneaky or greedy mover is refused with nothing st
 ## The AI roles
 
 Built on the Vercel AI SDK 7 with the `anthropic`, `openai` or `google` provider (`LLM_PROVIDER`).
-Decisions use `LLM_MODEL` ("smart"); explanations, notes and labels use `LLM_MODEL_FAST`.
+Decisions use `LLM_MODEL` ("smart"); explanations, notes and labels use `LLM_MODEL_FAST`. The hosted
+demo uses Gemini's free tier with `gemini-3.5-flash-lite` for both. In a live run of the demo flow
+(2026-11-12) it parsed the goal, explained every plan row, ran the Studio tools, wrote every note and
+made the same negotiation moves as the standard strategy, at 2–7 s a call. `gemini-3.5-flash` was
+slower (up to 20 s) and its free daily quota ran out within a few calls; the negotiators fell back as
+designed.
 
 | Role (`apps/api/src/ai/`)               | Model | Used for                                    | When the model fails or is refused                           |
 | --------------------------------------- | ----- | ------------------------------------------- | ------------------------------------------------------------ |
