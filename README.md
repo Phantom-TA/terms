@@ -11,6 +11,14 @@ is a real PayPal invoice, and PayPal's verified webhook, not a model, says when 
 
 Built for the PayPal AI Hackathon 2026. MIT licence.
 
+[![Watch the 3-minute demo of Terms on YouTube](https://img.youtube.com/vi/FqfWXEMY9ss/maxresdefault.jpg)](https://www.youtube.com/watch?v=FqfWXEMY9ss)
+
+**Watch the demo:** [3 minutes on YouTube](https://www.youtube.com/watch?v=FqfWXEMY9ss), recorded on the hosted app.
+
+**Try it:** [terms-guii.onrender.com](https://terms-guii.onrender.com), live on the PayPal sandbox. No
+login: switch businesses with **Acting as** (top right). Maya Studio is the owner; Juniper Labs and
+Harbor & Co are her clients, each with its own agent. A completed demo run is loaded.
+
 ![The Workbench: Maya's goal, the plan in AG Grid, and the cash runway with the payroll line](docs/images/workbench.png)
 
 ## The problem
@@ -64,6 +72,8 @@ approves it and pays on PayPal. Each side sees only its own policy, checks and a
 paid only when PayPal's verified webhook says so. Every step is in the audit trail, with PayPal's
 request and debug IDs.
 
+![Harbor's PayPal invoice: the agreed $21 discount, and $1,729 paid early from its saved PayPal method](docs/images/paypal-invoice.png)
+
 ![The audit trail with PayPal calls and verified webhooks](docs/images/audit-trail.png)
 
 **5. Cash Studio.** Maya asks what-if questions in plain English. An AG Studio agent with read-only
@@ -72,10 +82,10 @@ tools answers by building charts live, including a custom cost-versus-cash widge
 ![Cash Studio: the strategist draws what each extra dollar of early cash costs](docs/images/cash-studio.png)
 
 **Outcome:** $6,689 committed against a $6,510 target (the gap plus a 5% buffer), for $61 in
-discounts. Her clients earn 16–18% a year for paying early.
+discounts. Her clients earn 16–18.5% a year for paying early.
 
-_These screenshots are from the app's demo mode, which runs on schema-checked mock data. The same
-screens run against the PayPal sandbox._
+_The screenshots are from the hosted app on the PayPal sandbox, except Cash Studio, which is from the
+web app's demo mode._
 
 ## Screens
 
@@ -95,9 +105,12 @@ states, works at laptop and tablet widths, and is tested with axe for accessibil
 
 ## AI and sponsor tools
 
-- **AI:** a goal parser, the two negotiators, a reply parser for clients who write back in words,
-  explanations, and the Cash Studio strategist. Which model does what, and how each is bounded, is
-  in [docs/ai.md](docs/ai.md). The browser never holds a model key.
+- **AI:** Google Gemini (`gemini-3.5-flash-lite`) through the Vercel AI SDK powers a goal parser,
+  the two negotiators, a reply parser for clients who write back in words, plan explanations,
+  message notes, a transaction labeller and the Cash Studio strategist. Models choose; code decides
+  what is allowed, and every role has a deterministic fallback. Which model does what, and how each
+  is bounded, is in [docs/ai.md](docs/ai.md). The browser never holds a model key. We built Terms
+  with Claude Code.
 - **PayPal:** invoicing (full update with a discount and a partial-payment minimum, reminders),
   vaulted payments, verified webhooks and Transaction Search. Details and spike results are in
   [docs/paypal.md](docs/paypal.md).
@@ -132,7 +145,7 @@ pnpm --filter @terms/web dev    # web app on http://localhost:5173 (proxies /api
 ```
 
 - **AI (optional):** set `LLM_API_KEY` (Anthropic by default; `LLM_PROVIDER` can be `openai` or
-  `google`). Without it every AI role runs in its deterministic mode, and Cash Studio and written
+  `google`; the hosted demo uses `google` with `gemini-3.5-flash-lite`, on Gemini's free tier). Without it every AI role runs in its deterministic mode, and Cash Studio and written
   offer replies say they are not set up. `AI_MODE=replay` plays recorded answers without a key.
 - **Webhooks locally:** expose the API with a tunnel (for example `cloudflared tunnel --url
 http://localhost:3000`), then `pnpm webhook:register https://<tunnel-host>` and set
@@ -155,8 +168,6 @@ the PayPal webhook and seeding: [docs/deploy.md](docs/deploy.md).
   paid only on PayPal's verified webhook.
 - **Transaction Search (spike S4, partial):** the sandbox reports with a lag of about two hours, so
   the forecast also uses Terms' own record of verified payments.
-- **Cash Studio:** the strategist runs through the server, which has so far been tested with a mock
-  model only.
 
 ## More
 
