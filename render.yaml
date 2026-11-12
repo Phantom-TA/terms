@@ -12,8 +12,8 @@ services:
     name: terms
     runtime: node
     plan: starter
-    # Deploys develop while the demo is tested end to end; switch to main for the release.
-    branch: develop
+    # The release branch: work lands on develop and reaches the hosted demo through main.
+    branch: main
     autoDeploy: false
     # pnpm comes from the packageManager field; dev dependencies are needed to build.
     buildCommand: corepack enable pnpm && pnpm install --frozen-lockfile --production=false && pnpm build:prod
