@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+pnpm-lock.yaml
+*.tsbuildinfo
+CONTEXT.md
+prisma/migrations
+apps/api/src/generated
+.local

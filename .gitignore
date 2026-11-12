@@ -29,3 +29,10 @@ Thumbs.db
 
 # spike and seed run output (may contain sandbox IDs only; never secrets)
 scripts/spikes/out/
+
+# local embedded Postgres data
+.local/
+
+# generated Prisma client (pnpm db:generate)
+apps/api/src/generated/
+scripts/simulations/

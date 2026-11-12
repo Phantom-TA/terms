@@ -1,0 +1,688 @@
+// Terms data model (CONTEXT.md, "Data model and backend API").
+// Money is integer cents (BigInt) and percentages are integer basis points (Int), matching
+// @terms/shared. PayPal stays authoritative for money; invoice and payment rows mirror PayPal
+// objects with their PayPal IDs and are refreshed from verified webhooks and server reads.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../apps/api/src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------------------------
+// Enums (mirror packages/shared/src/enums.ts)
+// ---------------------------------------------------------------------------------------------
+
+enum BusinessRole {
+  SUPPLIER
+  CLIENT
+}
+
+enum DealState {
+  SUGGESTED
+  APPROVED
+  SENT
+  COUNTERED
+  NEEDS_OWNER
+  AGREED
+  INVOICE_UPDATED
+  AWAITING_PAYMENT
+  PAID
+  PARTIALLY_PAID
+  DECLINED
+  EXPIRED
+  WITHDRAWN
+  FAILED
+  REMOVED
+}
+
+enum ActionType {
+  NONE
+  REMINDER
+  PARTIAL_PAYMENT
+  EARLY_DISCOUNT
+  NEGOTIATE
+}
+
+enum PlanItemRank {
+  PRIMARY
+  BACKUP
+}
+
+enum PlanReasonCode {
+  CHEAPEST_COVER
+  PARTIAL_TO_FIT_GAP
+  CLIENT_EARLY_PAY_CAP
+  REMINDER_OVERDUE
+  REMINDER_DUE_BEFORE_DEADLINE
+  DO_NOT_CONTACT
+  OVERDUE_NO_DISCOUNT
+  NOT_NEEDED
+  BACKUP
+  OWNER_EDIT
+  OWNER_EXCLUDED
+  ALREADY_PAID
+}
+
+enum PlanStatus {
+  DRAFT
+  APPROVED
+  MET
+  CANCELLED
+}
+
+enum GoalStatus {
+  DRAFT
+  PLANNED
+  ACTIVE
+  MET
+  CANCELLED
+}
+
+enum ApprovalType {
+  PLAN
+  COUNTER_OVER_PLAN
+  BACKUP_OVER_CEILING
+  CLIENT_PAYMENT
+}
+
+enum ApprovalRequestedFrom {
+  OWNER
+  CLIENT_HUMAN
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum Actor {
+  OWNER
+  SUPPLIER_AGENT
+  CLIENT_AGENT
+  CLIENT_HUMAN
+  SYSTEM
+  PAYPAL
+}
+
+enum MessageType {
+  OFFER
+  COUNTER
+  ACCEPT
+  DECLINE
+  WITHDRAW
+}
+
+enum PayPalInvoiceStatus {
+  DRAFT
+  SENT
+  SCHEDULED
+  UNPAID
+  PAYMENT_PENDING
+  PARTIALLY_PAID
+  PAID
+  MARKED_AS_PAID
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  MARKED_AS_REFUNDED
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+enum CashEventKind {
+  PAYROLL
+  RENT
+  CONTRACTOR
+  SUBSCRIPTION
+  TAX
+  INVOICE_PAYMENT
+  TRANSFER
+  OTHER
+}
+
+enum CashEventSource {
+  PAYPAL_TXN
+  CONFIRMED_RECURRING
+}
+
+enum BalanceSource {
+  PAYPAL_BALANCES
+  LEDGER
+}
+
+enum Tone {
+  FRIENDLY_BRIEF
+  FORMAL
+  WARM_DETAILED
+}
+
+enum VaultStatus {
+  NONE
+  PENDING
+  ACTIVE
+  FAILED
+  REVOKED
+}
+
+enum PaymentStatus {
+  CREATED
+  PAYER_ACTION_REQUIRED
+  APPROVED
+  CAPTURED
+  RECORDED
+  FAILED
+}
+
+enum AuditAction {
+  SESSION_STARTED
+  SYNC_COMPLETED
+  GOAL_PARSED
+  GOAL_UPDATED
+  FORECAST_COMPUTED
+  PLAN_CREATED
+  PLAN_ITEM_EDITED
+  PLAN_APPROVED
+  PLAN_CANCELLED
+  POLICY_CHECKED
+  NEGOTIATION_MESSAGE
+  DEAL_TRANSITION
+  APPROVAL_REQUESTED
+  APPROVAL_DECIDED
+  REMINDER_SENT
+  INVOICE_UPDATED
+  INVOICE_REISSUED
+  PAYMENT_RECORDED
+  ORDER_CREATED
+  ORDER_CAPTURED
+  VAULT_SETUP_STARTED
+  VAULT_TOKEN_CREATED
+  PAYPAL_REQUEST
+  PAYPAL_ERROR
+  WEBHOOK_VERIFIED
+  WEBHOOK_REJECTED
+  WEBHOOK_DUPLICATE
+  OFFER_PAGE_VIEWED
+  OFFER_REPLY
+  GOAL_MET
+  CLIENT_POLICY_UPDATED
+  SUPPLIER_POLICY_UPDATED
+  STUDIO_TURN
+}
+
+enum SubjectType {
+  BUSINESS
+  INVOICE
+  GOAL
+  PLAN
+  PLAN_ITEM
+  DEAL
+  APPROVAL
+  WEBHOOK_EVENT
+  VAULT_TOKEN
+  PAYMENT
+  POLICY
+  SESSION
+}
+
+// ---------------------------------------------------------------------------------------------
+// Businesses and policies
+// ---------------------------------------------------------------------------------------------
+
+model Business {
+  id               String       @id @default(cuid(2))
+  name             String
+  /// URL-safe handle used in negotiation party refs ("harbor-co").
+  slug             String       @unique
+  role             BusinessRole
+  paypalEmail      String?
+  paypalMerchantId String?
+  hasAgent         Boolean      @default(false)
+  isDemo           Boolean      @default(false)
+  /// IANA time zone used for "today" and deadlines.
+  timeZone         String       @default("America/New_York")
+  currency         String       @default("USD")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  supplierPolicy   SupplierPolicy?
+  clientPolicy     ClientPolicy?
+  paypalAccount    PayPalAccount?
+  invoicesIssued   Invoice[]       @relation("InvoiceSupplier")
+  invoicesReceived Invoice[]       @relation("InvoiceClient")
+  cashEvents       CashEvent[]
+  goals            Goal[]
+  vaultTokens      VaultToken[]
+  sessions         Session[]
+  deals            Deal[]          @relation("DealClient")
+}
+
+model SupplierPolicy {
+  businessId         String   @id
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  maxDiscountBps     Int
+  /// Null: two-thirds of the maximum, rounded down to 0.1%.
+  openingDiscountBps Int?
+  /// Business IDs never contacted.
+  doNotContact       String[]
+  bufferBps          Int      @default(500)
+  costCeilingCents   BigInt
+  tone               Tone     @default(FRIENDLY_BRIEF)
+  updatedAt          DateTime @updatedAt
+}
+
+model ClientPolicy {
+  businessId        String   @id
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  hurdleBps         Int
+  targetBps         Int
+  cashBufferCents   BigInt
+  autoPayLimitCents BigInt
+  earlyPayCapCents  BigInt?
+  /// Supplier business IDs never paid early.
+  neverPayEarly     String[]
+  /// The client's own treasury figure for its agent's cash check (the client's data, not PayPal's).
+  cashOnHandCents   BigInt
+  cashAsOf          DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+/// Sync state and balance for a business's connected PayPal account.
+model PayPalAccount {
+  businessId      String         @id
+  business        Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  merchantId      String?
+  lastSyncedAt    DateTime?
+  balanceCents    BigInt?
+  balanceCurrency String         @default("USD")
+  balanceSource   BalanceSource?
+  balanceAsOf     DateTime?
+  txnCoveredFrom  DateTime?
+  txnCoveredTo    DateTime?
+  updatedAt       DateTime       @updatedAt
+}
+
+// ---------------------------------------------------------------------------------------------
+// PayPal mirrors
+// ---------------------------------------------------------------------------------------------
+
+model Invoice {
+  id              String              @id @default(cuid(2))
+  paypalInvoiceId String              @unique
+  supplierId      String
+  supplier        Business            @relation("InvoiceSupplier", fields: [supplierId], references: [id])
+  clientId        String
+  client          Business            @relation("InvoiceClient", fields: [clientId], references: [id])
+  number          String
+  amountCents     BigInt
+  currency        String              @default("USD")
+  issueDate       DateTime?           @db.Date
+  dueDate         DateTime            @db.Date
+  paypalStatus    PayPalInvoiceStatus
+  amountPaidCents BigInt              @default(0)
+  amountDueCents  BigInt
+  contactAllowed  Boolean             @default(true)
+  paypalUrl       String?
+  isDemo          Boolean             @default(false)
+  /// PayPal's last-updated timestamp, to ignore stale webhook or sync data.
+  paypalUpdatedAt DateTime?
+  lastSyncedAt    DateTime            @default(now())
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  planItems PlanItem[]
+  deals     Deal[]
+
+  @@unique([supplierId, number])
+  @@index([supplierId, paypalStatus])
+  @@index([clientId])
+}
+
+model CashEvent {
+  id          String          @id @default(cuid(2))
+  businessId  String
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  date        DateTime        @db.Date
+  /// Always positive; `direction` gives the sign.
+  amountCents BigInt
+  direction   CashDirection
+  kind        CashEventKind
+  source      CashEventSource
+  label       String
+  paypalTxnId String?         @unique
+  createdAt   DateTime        @default(now())
+
+  @@index([businessId, date])
+}
+
+// ---------------------------------------------------------------------------------------------
+// Goals, plans, deals
+// ---------------------------------------------------------------------------------------------
+
+model Goal {
+  id                  String     @id @default(cuid(2))
+  supplierId          String
+  supplier            Business   @relation(fields: [supplierId], references: [id])
+  rawText             String
+  amountCents         BigInt
+  deadline            DateTime   @db.Date
+  maxDiscountBps      Int
+  openingDiscountBps  Int
+  /// Matched client IDs never contacted for this goal.
+  doNotContactIds     String[]
+  /// Names as written, with match results (DoNotContactEntry[]).
+  doNotContactEntries Json       @default("[]")
+  bufferBps           Int
+  status              GoalStatus @default(DRAFT)
+  /// GoalForecast, or null before the forecaster runs.
+  forecast            Json?
+  defaultedFields     String[]
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  plans Plan[]
+
+  @@index([supplierId, status])
+}
+
+model Plan {
+  id               String     @id @default(cuid(2))
+  goalId           String
+  goal             Goal       @relation(fields: [goalId], references: [id])
+  status           PlanStatus @default(DRAFT)
+  costCeilingCents BigInt
+  approvedAt       DateTime?
+  metAt            DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  items     PlanItem[]
+  deals     Deal[]
+  approvals Approval[]
+
+  @@index([goalId])
+}
+
+model PlanItem {
+  id                     String         @id @default(cuid(2))
+  planId                 String
+  plan                   Plan           @relation(fields: [planId], references: [id], onDelete: Cascade)
+  invoiceId              String
+  invoice                Invoice        @relation(fields: [invoiceId], references: [id])
+  action                 ActionType
+  rank                   PlanItemRank
+  /// 1-based order for backups; null for primary rows.
+  backupOrder            Int?
+  discountBps            Int?
+  amountEarlyCents       BigInt?
+  payBy                  DateTime?      @db.Date
+  costCents              BigInt         @default(0)
+  committedIfAgreedCents BigInt         @default(0)
+  reasonCode             PlanReasonCode
+  reason                 String
+  /// Plain-language explanation from the plan explainer model.
+  explanation            String?
+  editedByOwner          Boolean        @default(false)
+  /// Policy checks the server ran on this row (planner or owner edit), as PolicyCheck[].
+  policyChecks           Json           @default("[]")
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  deal Deal?
+
+  @@index([planId, rank])
+}
+
+model Deal {
+  id                String     @id @default(cuid(2))
+  planItemId        String     @unique
+  planItem          PlanItem   @relation(fields: [planItemId], references: [id])
+  planId            String
+  plan              Plan       @relation(fields: [planId], references: [id])
+  invoiceId         String
+  invoice           Invoice    @relation(fields: [invoiceId], references: [id])
+  clientId          String
+  client            Business   @relation("DealClient", fields: [clientId], references: [id])
+  action            ActionType
+  state             DealState  @default(SUGGESTED)
+  round             Int        @default(0)
+  /// NegotiationTerms currently on the table.
+  currentTerms      Json?
+  /// NegotiationTerms both sides agreed.
+  agreedTerms       Json?
+  costCents         BigInt     @default(0)
+  committedCents    BigInt     @default(0)
+  expiresAt         DateTime?
+  closedReason      String?
+  // PayPal references
+  paypalInvoiceId   String
+  reissuedInvoiceId String?
+  paypalOrderId     String?
+  paypalCaptureId   String?
+  invoicePaymentId  String?
+  payerUrl          String?
+  // Public offer page (human clients): only a hash of the signed token is stored.
+  offerTokenHash    String?    @unique
+  offerTokenUsedAt  DateTime?
+  /// Optimistic lock: every state change increments it.
+  version           Int        @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  transitions DealTransition[]
+  messages    NegotiationMessage[]
+  approvals   Approval[]
+  payments    PaymentRecord[]
+
+  @@index([planId, state])
+  @@index([clientId, state])
+}
+
+model DealTransition {
+  id            String        @id @default(cuid(2))
+  dealId        String
+  deal          Deal          @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromState     DealState?
+  toState       DealState
+  actor         Actor
+  /// What both sides see.
+  reason        String
+  /// The real reason, seen only by the `privateTo` side (an agent's policy, the owner's ceiling).
+  privateReason String?
+  privateTo     BusinessRole?
+  at            DateTime      @default(now())
+
+  @@index([dealId, at])
+}
+
+model NegotiationMessage {
+  id                String      @id @default(cuid(2))
+  dealId            String
+  deal              Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  fromParty         String
+  toParty           String
+  actor             Actor
+  type              MessageType
+  terms             Json?
+  impliedAnnualRate String?
+  payNowCents       BigInt?
+  note              String
+  policyChecks      Json        @default("[]")
+  round             Int
+  expiresAt         DateTime?
+  createdAt         DateTime    @default(now())
+
+  @@index([dealId, createdAt])
+}
+
+model Approval {
+  id                 String                @id @default(cuid(2))
+  type               ApprovalType
+  subjectType        SubjectType
+  subjectId          String
+  requestedFrom      ApprovalRequestedFrom
+  /// The business whose session may decide it.
+  businessId         String
+  decision           ApprovalDecision      @default(PENDING)
+  title              String
+  summary            String
+  planId             String?
+  plan               Plan?                 @relation(fields: [planId], references: [id])
+  dealId             String?
+  deal               Deal?                 @relation(fields: [dealId], references: [id])
+  terms              Json?
+  paymentAmountCents BigInt?
+  /// CostImpact, in wire format.
+  costImpact         Json?
+  expiresAt          DateTime?
+  decidedAt          DateTime?
+  decidedBy          Actor?
+  decisionNote       String?
+  /// For an owner approval of a negotiation move: the note the move carries if approved, written
+  /// when the move was chosen so no model call happens inside the owner's decision.
+  draftNote          String?
+  createdAt          DateTime              @default(now())
+
+  @@index([businessId, decision])
+  @@index([dealId])
+}
+
+model VaultToken {
+  id                   String      @id @default(cuid(2))
+  clientId             String
+  client               Business    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  setupTokenId         String?     @unique
+  paypalPaymentTokenId String?     @unique
+  payerEmail           String?
+  status               VaultStatus @default(PENDING)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@index([clientId, status])
+}
+
+model PaymentRecord {
+  id               String        @id @default(cuid(2))
+  dealId           String
+  deal             Deal          @relation(fields: [dealId], references: [id])
+  paypalOrderId    String?       @unique
+  captureId        String?       @unique
+  invoicePaymentId String?
+  amountCents      BigInt
+  status           PaymentStatus @default(CREATED)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([dealId])
+}
+
+// ---------------------------------------------------------------------------------------------
+// Webhooks, audit, sessions, events
+// ---------------------------------------------------------------------------------------------
+
+model WebhookEvent {
+  id                 String    @id @default(cuid(2))
+  paypalEventId      String    @unique
+  type               String
+  verified           Boolean
+  /// PayPal's verification_status ("SUCCESS" / "FAILURE") or the local reason it was not checked.
+  verificationStatus String
+  payload            Json
+  receivedAt         DateTime  @default(now())
+  processedAt        DateTime?
+  processingError    String?
+
+  @@index([type, receivedAt])
+}
+
+model AuditLog {
+  id              String      @id @default(cuid(2))
+  at              DateTime    @default(now())
+  actor           Actor
+  action          AuditAction
+  subjectType     SubjectType
+  subjectId       String
+  /// Businesses allowed to see this entry (the supplier and, for deal entries, the client).
+  businessIds     String[]
+  summary         String
+  details         Json        @default("{}")
+  paypalDebugId   String?
+  paypalRequestId String?
+  webhookVerified Boolean?
+  /// The PayPal call this entry records, e.g. "PUT /v2/invoicing/invoices/{id}".
+  paypalCall      String?
+  /// The deal this entry belongs to, whatever its subject type.
+  dealId          String?
+
+  @@index([subjectType, subjectId])
+  @@index([dealId])
+  @@index([at])
+}
+
+model Session {
+  id         String   @id @default(cuid(2))
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the session token; the token itself is only in the cookie.
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([businessId])
+}
+
+/// Server-sent events, kept so a reconnecting client can resume with Last-Event-ID.
+model EventLog {
+  id         BigInt   @id @default(autoincrement())
+  businessId String
+  type       String
+  payload    Json
+  at         DateTime @default(now())
+
+  @@index([businessId, id])
+}
+
+// ---------------------------------------------------------------------------------------------
+// PayPal writes: claim → call → record (paypal-plan.md, "Durable writes")
+// ---------------------------------------------------------------------------------------------
+
+enum PayPalWriteStatus {
+  /// Claimed; the call is in flight or its process died before recording the result.
+  CLAIMED
+  SUCCEEDED
+  /// PayPal may have acted, but Terms could not learn the answer. Settled by a re-read.
+  UNKNOWN
+}
+
+/// One row per PayPal write, committed before the call. `key` is computed the same way by every
+/// caller doing the same operation, so a second caller is stopped by the unique constraint before
+/// it reaches PayPal. `requestId` is sent as PayPal-Request-Id, which PayPal deduplicates on.
+/// A write PayPal refused is released (deleted) so a corrected attempt can claim again.
+model PayPalWrite {
+  id        String            @id @default(cuid(2))
+  key       String            @unique
+  operation String
+  requestId String            @unique
+  status    PayPalWriteStatus @default(CLAIMED)
+  /// The PayPal id of what the write created or changed (order, capture, token, invoice).
+  resultRef String?
+  /// Diagnostic for UNKNOWN: kind, status and PayPal debug id; never a body or a secret.
+  lastError Json?
+  dealId    String?
+  createdAt DateTime          @default(now())
+  settledAt DateTime?
+
+  @@index([status])
+  @@index([dealId])
+}

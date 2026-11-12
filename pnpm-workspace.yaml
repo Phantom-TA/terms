@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Install scripts are opt-in. Only these packages may run them.
+allowBuilds:
+  '@embedded-postgres/windows-x64': true
+  '@embedded-postgres/linux-x64': true
+  '@embedded-postgres/darwin-arm64': true
+  '@embedded-postgres/darwin-x64': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  # APIMatic's PayPal TypeScript SDK (Context Plugin), pinned to one commit; its prepare script
+  # builds it with tshy. Not published to npm.
+  'paypal@https://codeload.github.com/context-plugins/paypal-typescript-sdk/tar.gz/5d0df8a8817e5fdf2e2cd48e68f790ea4730aab2': true

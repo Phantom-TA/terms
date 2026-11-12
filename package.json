@@ -1,0 +1,50 @@
+{
+  "name": "terms",
+  "private": true,
+  "description": "Terms: an agent that closes a small business's cash gap by negotiating payment terms, settled on PayPal.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm db:generate && pnpm -r --filter ./packages/** run build",
+    "build:prod": "pnpm db:generate && pnpm --filter @terms/shared build && pnpm --filter @terms/api build && pnpm --filter @terms/web build",
+    "start": "node apps/api/dist/server.js",
+    "webhook:register": "pnpm spike ../../scripts/register-webhook.ts",
+    "typecheck": "pnpm -r run typecheck && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "spike": "pnpm --filter @terms/api exec tsx --conditions=@terms/source",
+    "seed": "pnpm --filter @terms/api exec tsx --conditions=@terms/source ../../scripts/seed-sandbox.ts",
+    "db:local": "node scripts/db/local-postgres.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "prepare": "node scripts/install-hooks.mjs",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test:coverage"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.1.0",
+    "dotenv": "^18.0.9",
+    "embedded-postgres": "17.11.0-beta.19",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "prisma": "~7.10.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0",
+    "zod": "^4.6.7"
+  }
+}

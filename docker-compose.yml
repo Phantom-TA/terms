@@ -1,0 +1,23 @@
+name: terms
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: terms
+      POSTGRES_PASSWORD: terms
+      POSTGRES_DB: terms
+    ports:
+      - '5432:5432'
+    volumes:
+      - terms-pg:/var/lib/postgresql/data
+      - ./scripts/db/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U terms -d terms']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  terms-pg:

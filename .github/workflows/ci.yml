@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'a/**', 'b/**']
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: terms
+          POSTGRES_PASSWORD: terms
+          POSTGRES_DB: terms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U terms -d terms_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      DATABASE_URL: postgresql://terms:terms@localhost:5432/terms_test
+      TEST_DATABASE_URL: postgresql://terms:terms@localhost:5432/terms_test
+      PAYPAL_SANDBOX_TESTS: '0'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Secret scan
+        run: pnpm check:secrets --all
+
+      - name: Generate Prisma client and build packages
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Test with coverage
+        run: pnpm test:coverage
+
+      # Developer B's web gate (CR-3). Root lint and test exclude apps/web by design, so it runs
+      # here; skipped on branches that do not have the web app yet.
+      - name: Web lint and component tests
+        if: hashFiles('apps/web/package.json') != ''
+        run: pnpm --filter @terms/web lint && pnpm --filter @terms/web test
+
+      - name: Web production build and bundle check
+        if: hashFiles('apps/web/package.json') != ''
+        run: pnpm --filter @terms/web exec vite build && node apps/web/scripts/check-prod-bundle.mjs
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
