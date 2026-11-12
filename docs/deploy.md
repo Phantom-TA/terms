@@ -10,7 +10,7 @@ service does not sleep while it is being judged.
 | ---------- | ---------------------------------------------------------------------------------------------- |
 | Build      | `corepack enable pnpm && pnpm install --frozen-lockfile --production=false && pnpm build:prod` |
 | Pre-deploy | `pnpm db:deploy` (applies Prisma migrations before the new version serves)                     |
-| Start      | `pnpm start` (`node apps/api/dist/server.js`)                                                  |
+| Start      | `NODE_ENV=production pnpm start` (`node apps/api/dist/server.js`)                              |
 | Health     | `GET /api/health` (reports the database, PayPal and AI configuration)                          |
 
 `pnpm build:prod` generates the Prisma client, then builds `@terms/shared`, the API and the web app
@@ -63,3 +63,10 @@ Not yet checked on Render itself: the `corepack enable pnpm` step and the first 
 
 If `corepack enable pnpm` fails on Render, replace the start of the build command with
 `npm install -g pnpm@12.6.0 &&` (the version in `package.json`'s `packageManager`).
+
+## If the build fails installing `paypal`
+
+The PayPal SDK is installed from GitHub and built during install with its own dev dependencies.
+`NODE_ENV=production` must therefore not be a service environment variable (it would apply to the build
+and make npm skip them: `tshy: not found`); `render.yaml` sets it only in the start command. If someone
+added `NODE_ENV` under Environment in the dashboard, remove it there.
