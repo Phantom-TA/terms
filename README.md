@@ -11,6 +11,10 @@ is a real PayPal invoice, and PayPal's verified webhook, not a model, says when 
 
 Built for the PayPal AI Hackathon 2026. MIT licence.
 
+[![Watch the 3-minute demo of Terms on YouTube](https://img.youtube.com/vi/FqfWXEMY9ss/maxresdefault.jpg)](https://www.youtube.com/watch?v=FqfWXEMY9ss)
+
+**Watch the demo:** [3 minutes on YouTube](https://www.youtube.com/watch?v=FqfWXEMY9ss), recorded on the hosted app.
+
 **Try it:** [terms-guii.onrender.com](https://terms-guii.onrender.com), live on the PayPal sandbox. No
 login: switch businesses with **Acting as** (top right). Maya Studio is the owner; Juniper Labs and
 Harbor & Co are her clients, each with its own agent. A completed demo run is loaded.
