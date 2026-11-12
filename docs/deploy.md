@@ -10,7 +10,7 @@ service does not sleep while it is being judged.
 | ---------- | ---------------------------------------------------------------------------------------------- |
 | Build      | `corepack enable pnpm && pnpm install --frozen-lockfile --production=false && pnpm build:prod` |
 | Pre-deploy | `pnpm db:deploy` (applies Prisma migrations before the new version serves)                     |
-| Start      | `NODE_ENV=production pnpm start` (`node apps/api/dist/server.js`)                              |
+| Start      | `env NODE_ENV=production pnpm start` (`node apps/api/dist/server.js`)                          |
 | Health     | `GET /api/health` (reports the database, PayPal and AI configuration)                          |
 
 `pnpm build:prod` generates the Prisma client, then builds `@terms/shared`, the API and the web app
