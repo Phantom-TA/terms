@@ -48,15 +48,17 @@ services:
       # From `pnpm webhook:register <APP_BASE_URL>` after the first deploy.
       - key: PAYPAL_WEBHOOK_ID
         sync: false
-      # AI (optional: without a key every role falls back to its deterministic mode).
+      # AI (optional: without a key every role falls back to its deterministic mode). Gemini's free
+      # tier (docs/deploy.md): Flash-Lite answered every role in a live run; 3.5 Flash was slower and
+      # its free daily quota ran out within a few calls.
       - key: LLM_PROVIDER
-        value: anthropic
+        value: google
       - key: LLM_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: claude-sonnet-5-5
+        value: gemini-3.5-flash-lite
       - key: LLM_MODEL_FAST
-        value: claude-haiku-5-5
+        value: gemini-3.5-flash-lite
       - key: AI_MODE
         value: live
       - key: AI_NEGOTIATION
