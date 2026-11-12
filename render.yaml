@@ -21,7 +21,8 @@ services:
     preDeployCommand: pnpm db:deploy
     # NODE_ENV is set here, not as a service variable: a service variable also applies to the build,
     # where it makes npm skip the dev dependencies the PayPal SDK (a GitHub package) needs to build.
-    startCommand: NODE_ENV=production pnpm start
+    # `env` sets it explicitly: Render's dashboard does not keep a bare `NODE_ENV=...` prefix.
+    startCommand: env NODE_ENV=production pnpm start
     healthCheckPath: /api/health
     envVars:
       - key: DATABASE_URL
